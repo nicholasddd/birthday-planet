@@ -377,6 +377,7 @@ const tq = new THREE.Quaternion();
 const camLook = V(0, R, 0);
 camera.position.set(0, R + 7, -11);
 let walkAmt = 0, wet = false, girlH = 0, overview = false;
+let faceYaw = 0, faceTarget = 0;   // which way she visually faces, relative to the camera's heading
 
 function blocked(oldDir, newDir) {
   for (const o of obstacles) {
@@ -406,7 +407,11 @@ function updatePlayer(dt, t) {
   girlH = lerp(girlH, stand.h, 1 - Math.exp(-dt * 12));
   girl.root.position.copy(here).multiplyScalar(R + girlH);
   if (wet && Math.abs(fwd) > 0.1 && Math.random() < 0.25) burst(here.clone().multiplyScalar(R - 0.1), 0xffffff, 2, 2.5, 0.35, 0.5);
-  girl.root.quaternion.copy(pq);
+  // walking backwards = she turns around and runs toward the camera
+  if (fwd > 0.05) faceTarget = 0; else if (fwd < -0.05) faceTarget = Math.PI;
+  const dYaw = Math.atan2(Math.sin(faceTarget - faceYaw), Math.cos(faceTarget - faceYaw));
+  faceYaw += dYaw * (1 - Math.exp(-dt * 10));
+  girl.root.quaternion.copy(pq).multiply(tq.setFromAxisAngle(AY, faceYaw));
   walkAmt = lerp(walkAmt, Math.abs(fwd) > 0.05 ? 1 : 0, 0.15);
   animateCharacter(girl, t, walkAmt);
 
@@ -524,6 +529,7 @@ function startFinale() {
   for (const f of flowerObjs.values()) planetGroup.remove(f);
   flowerObjs.clear();
   finale = { phase: 'float', t: 0, fq: pq.clone(), start: girl.root.position.clone(), look: camLook.clone() };
+  girl.root.quaternion.copy(pq);
   cake.quaternion.copy(finale.fq);
   cake.scale.setScalar(0.001);
   cake.visible = true;

@@ -4,7 +4,8 @@ import { RenderPass } from 'three/addons/postprocessing/RenderPass.js';
 import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js';
 import { OutputPass } from 'three/addons/postprocessing/OutputPass.js';
 import { CONFIG } from './config.js';
-import { buildPlanet, R, mulberry32, randDir } from './planet.js';
+import { buildPlanet, R, mulberry32, randDir, softify } from './planet.js';
+import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import { makeChibi, animateCharacter } from './characters.js';
 import { makeCabbageChicken } from './chickens.js';
 
@@ -397,13 +398,16 @@ if (DEBUG) {
   });
   add('Reset everything', () => { store.set('bday-collected', '[]'); store.set('bday-pulled', '[]'); store.set('bday-offset', '0'); store.set('bday-hint-ack', '0'); location.reload(); });
   document.body.appendChild(d);
+  window.__phase = () => finale?.phase;   // for testing
 }
 
 // ============================================================ input
 const keys = {};
+// buttons drop focus after a click, so SPACE never re-presses them by accident
+addEventListener('click', e => e.target.closest?.('button')?.blur(), true);
 addEventListener('keydown', e => {
   keys[e.code] = true;
-  if (state === 'finale' && finale?.phase === 'await' && (e.code === 'Space' || e.code === 'Enter')) cutCake();
+  if (state === 'finale') { if ((e.code === 'Space' || e.code === 'Enter') && !e.repeat) { e.preventDefault(); finaleAction(); } return; }
   if (e.code === 'Space') { e.preventDefault(); if (!e.repeat) { if (nearHolder) offerLetter(nearHolder); else pullPress(); } }
 });
 $('btnPull').addEventListener('pointerdown', e => { e.preventDefault(); pullPress(); });
@@ -426,7 +430,9 @@ const joy = { x: 0, y: 0, id: null };
   const end = e => { if (e.pointerId !== joy.id) return; joy.id = null; joy.x = joy.y = 0; knob.style.transform = ''; };
   base.addEventListener('pointerup', end); base.addEventListener('pointercancel', end);
 }
-renderer.domElement.addEventListener('pointerdown', () => { if (state === 'finale' && finale?.phase === 'await') cutCake(); });
+renderer.domElement.addEventListener('pointerdown', () => { if (state === 'finale') finaleAction(); });
+$('btnBlow').addEventListener('pointerdown', e => { e.preventDefault(); finaleAction(); });
+$('btnLook').onclick = () => finaleAction();
 
 // ============================================================ player
 const pq = new THREE.Quaternion();   // her orientation on the planet
@@ -590,6 +596,7 @@ function updateChickens(dt, t) {
   }
   // freed chickens
   for (const r of roamers) {
+    if (r.mode === 'flung') continue;   // drifting in space during the finale
     const root = r.ch.root;
     r.t += dt;
     if (r.mode === 'pop') {                       // big hop out of the hole
@@ -626,152 +633,378 @@ function updateChickens(dt, t) {
   }
 }
 
-// ============================================================ cake (finale)
+// ============================================================ strawberry shortcake (finale)
 const cake = new THREE.Group(); cake.visible = false; scene.add(cake);
 const halfL = new THREE.Group(), halfR = new THREE.Group(); cake.add(halfL, halfR);
 const flames = [];
+// the inside of the cake: sponge, whipped cream and sliced strawberries
+const cutTex = canvasTex(512, 256, (x, w, h) => {
+  const bands = [[0, 0.3, 'sponge'], [0.3, 0.44, 'cream'], [0.44, 0.7, 'sponge'], [0.7, 0.84, 'cream'], [0.84, 0.96, 'sponge'], [0.96, 1, 'top']];
+  const rng = mulberry32(77);
+  for (const [a, b, kind] of bands) {
+    const y0 = h * (1 - b), y1 = h * (1 - a);
+    x.fillStyle = kind === 'sponge' ? '#f3d593' : '#fffaf1'; x.fillRect(0, y0, w, y1 - y0);
+    if (kind === 'sponge') {
+      for (let i = 0; i < 260; i++) { x.fillStyle = `rgba(200,150,70,${0.15 + rng() * 0.2})`; x.beginPath(); x.arc(rng() * w, y0 + rng() * (y1 - y0), 1 + rng() * 2.2, 0, Math.PI * 2); x.fill(); }
+    }
+    if (kind === 'cream') {
+      for (let sx = 18; sx < w; sx += 52 + rng() * 16) {
+        const cy = (y0 + y1) / 2, rw = 20 + rng() * 6, rh = (y1 - y0) * 0.42;
+        x.fillStyle = '#e8384f'; x.beginPath(); x.ellipse(sx, cy, rw, rh, 0, 0, Math.PI * 2); x.fill();
+        x.fillStyle = '#ff9aa5'; x.beginPath(); x.ellipse(sx, cy, rw * 0.55, rh * 0.5, 0, 0, Math.PI * 2); x.fill();
+        x.fillStyle = '#fff3c4';
+        for (let k = 0; k < 6; k++) { const a = (k / 6) * Math.PI * 2; x.beginPath(); x.ellipse(sx + Math.cos(a) * rw * 0.78, cy + Math.sin(a) * rh * 0.7, 1.6, 1.1, a, 0, Math.PI * 2); x.fill(); }
+      }
+    }
+  }
+});
 {
-  const tiers = [{ r: 16, h: 7, c: 0xffd6e7 }, { r: 11.5, h: 6, c: 0xfff3f8 }, { r: 7, h: 5, c: 0xffc1dc }];
-  const sponge = new THREE.MeshStandardMaterial({ color: 0xf6d7a7, roughness: 0.9, side: THREE.DoubleSide });
-  const jam = new THREE.MeshStandardMaterial({ color: 0xff5c7a, roughness: 0.6, side: THREE.DoubleSide });
+  const creamM = softify(new THREE.MeshPhysicalMaterial({ color: 0xfffaf2, roughness: 0.55, sheen: 0.6, sheenColor: new THREE.Color(0xffffff) }), { scale: 0.6, strength: 0.15 });
+  const faceM = new THREE.MeshStandardMaterial({ map: cutTex, roughness: 0.85, side: THREE.DoubleSide });
+  const berryM = new THREE.MeshPhysicalMaterial({ color: 0xe32f48, roughness: 0.35, clearcoat: 0.7, clearcoatRoughness: 0.25 });
+  const leafM = new THREE.MeshStandardMaterial({ color: 0x5aa83c, roughness: 0.7 });
+  const berryG = new THREE.LatheGeometry([[0, -1], [0.42, -0.82], [0.72, -0.35], [0.8, 0.15], [0.62, 0.58], [0.3, 0.8], [0, 0.84]].map(([a, b]) => new THREE.Vector2(a, b)), 20);
+  const dollopG = mergeGeometries([new THREE.SphereGeometry(1, 16, 12).scale(1, 0.62, 1), new THREE.ConeGeometry(0.55, 0.9, 12).translate(0, 0.75, 0)]);
+  const half = a => (Math.sin(a) >= 0 ? halfR : halfL);
+  const strawberry = (parent, x, y, z, s) => {
+    const b = new THREE.Group(); b.position.set(x, y, z); b.scale.setScalar(s); b.rotation.set((Math.random() - 0.5) * 0.4, Math.random() * 6, (Math.random() - 0.5) * 0.4);
+    b.add(new THREE.Mesh(berryG, berryM));
+    for (let k = 0; k < 5; k++) { const l = new THREE.Mesh(new THREE.SphereGeometry(0.3, 8, 6), leafM); l.scale.set(1, 0.18, 0.45); const a = (k / 5) * Math.PI * 2; l.position.set(Math.cos(a) * 0.28, 0.82, Math.sin(a) * 0.28); l.rotation.y = -a; b.add(l); }
+    parent.add(b);
+  };
+  const tiers = [{ r: 16, h: 9 }, { r: 10.5, h: 6.5 }];
   let y = -9;
   for (const [ti, tr] of tiers.entries()) {
-    const icing = new THREE.MeshStandardMaterial({ color: tr.c, roughness: 0.5 });
-    const trim = new THREE.MeshStandardMaterial({ color: ti % 2 ? 0xff8fb8 : 0xffffff, roughness: 0.4 });
-    for (const [half, start, sgn] of [[halfR, 0, 1], [halfL, Math.PI, -1]]) {
-      const body = new THREE.Mesh(new THREE.CylinderGeometry(tr.r, tr.r, tr.h, 64, 1, false, start, Math.PI), icing);
-      body.position.y = y + tr.h / 2; half.add(body);
-      const face = new THREE.Mesh(new THREE.PlaneGeometry(tr.r * 2, tr.h), sponge);
-      face.rotation.y = Math.PI / 2; face.position.set(0.01 * sgn, y + tr.h / 2, 0); half.add(face);
-      const filling = new THREE.Mesh(new THREE.PlaneGeometry(tr.r * 2 - 0.4, 0.6), jam);
-      filling.rotation.y = Math.PI / 2; filling.position.set(0.02 * sgn, y + tr.h / 2, 0); half.add(filling);
-      const tg = new THREE.TorusGeometry(tr.r, 0.45, 8, 48, Math.PI); tg.rotateX(Math.PI / 2); tg.rotateY((sgn * Math.PI) / 2);
-      const top = new THREE.Mesh(tg, trim); top.position.y = y + tr.h; half.add(top);
-      const bot = new THREE.Mesh(tg, trim); bot.position.y = y + 0.2; half.add(bot);
-      // sprinkles of drips
-      for (let k = 0; k < 10; k++) {
-        const a = start + ((k + 0.5) / 10) * Math.PI;
-        const drip = new THREE.Mesh(new THREE.SphereGeometry(0.5, 8, 6), trim);
-        drip.scale.set(1, 1.8, 0.6);
-        drip.position.set(Math.sin(a) * tr.r, y + tr.h - 0.8, Math.cos(a) * tr.r);
-        half.add(drip);
-      }
+    for (const [hf, start, sgn] of [[halfR, 0, 1], [halfL, Math.PI, -1]]) {
+      const body = new THREE.Mesh(new THREE.CylinderGeometry(tr.r, tr.r, tr.h, 72, 1, false, start, Math.PI), creamM);
+      body.position.y = y + tr.h / 2; hf.add(body);
+      const face = new THREE.Mesh(new THREE.PlaneGeometry(tr.r * 2, tr.h), faceM);
+      face.rotation.y = (sgn * Math.PI) / 2; face.position.set(0.02 * sgn, y + tr.h / 2, 0); hf.add(face);
+    }
+    // piped cream around the top and bottom edges
+    const n = ti === 0 ? 30 : 20;
+    for (let k = 0; k < n; k++) {
+      const a = ((k + 0.5) / n) * Math.PI * 2;
+      const top = new THREE.Mesh(dollopG, creamM); top.scale.setScalar(ti === 0 ? 1.1 : 0.85);
+      top.position.set(Math.sin(a) * (tr.r - 0.9), y + tr.h + 0.35, Math.cos(a) * (tr.r - 0.9)); half(a).add(top);
+      const bot = new THREE.Mesh(new THREE.SphereGeometry(0.7, 12, 8), creamM);
+      bot.position.set(Math.sin(a) * tr.r, y + 0.4, Math.cos(a) * tr.r); half(a).add(bot);
+      if (k % 2 === 0) strawberry(half(a), Math.sin(a) * (tr.r - 0.9), y + tr.h + 1.6, Math.cos(a) * (tr.r - 0.9), ti === 0 ? 1.2 : 0.95);
     }
     y += tr.h;
   }
-  // candles around the top tier
-  const candleMs = [0x6fd3ff, 0xfff176, 0xb084ff, 0x81f5c1].map(c => new THREE.MeshStandardMaterial({ color: c }));
+  // a little heap of strawberries in the middle of the top
+  for (let k = 0; k < 7; k++) { const a = (k / 7) * Math.PI * 2 + 0.3; strawberry(half(a), Math.sin(a) * 2.2, y + 1, Math.cos(a) * 2.2, 1.15); }
+  // striped candles
+  const stripeTex = canvasTex(32, 128, (x, w, h) => { x.fillStyle = '#fff6fb'; x.fillRect(0, 0, w, h); x.fillStyle = '#ff9cc4'; for (let i = -h; i < h; i += 22) { x.beginPath(); x.moveTo(0, i); x.lineTo(w, i + 16); x.lineTo(w, i + 26); x.lineTo(0, i + 10); x.fill(); } });
+  const candleM = new THREE.MeshStandardMaterial({ map: stripeTex, roughness: 0.6 });
   for (let k = 0; k < 8; k++) {
     const a = ((k + 0.5) / 8) * Math.PI * 2;
-    const half = Math.sin(a) >= 0 ? halfR : halfL;
-    const cdl = new THREE.Mesh(new THREE.CylinderGeometry(0.3, 0.3, 2.4, 10), candleMs[k % 4]);
-    cdl.position.set(Math.sin(a) * 4.5, y + 1.2, Math.cos(a) * 4.5); half.add(cdl);
-    const fl = new THREE.Sprite(new THREE.SpriteMaterial({ map: glowTex, color: 0xffb340, blending: THREE.AdditiveBlending, depthWrite: false, transparent: true }));
-    fl.position.set(cdl.position.x, y + 2.9, cdl.position.z); fl.scale.set(1.2, 1.8, 1); half.add(fl); flames.push(fl);
+    const cx = Math.sin(a) * 6.2, cz = Math.cos(a) * 6.2;
+    const cdl = new THREE.Mesh(new THREE.CylinderGeometry(0.26, 0.26, 3.2, 12), candleM); cdl.position.set(cx, y + 1.6, cz); half(a).add(cdl);
+    const glow = new THREE.Sprite(new THREE.SpriteMaterial({ map: glowTex, color: 0xffb340, blending: THREE.AdditiveBlending, depthWrite: false, transparent: true }));
+    glow.position.set(cx, y + 3.75, cz); glow.scale.set(1.2, 1.8, 1); half(a).add(glow);
+    const core = new THREE.Mesh(new THREE.ConeGeometry(0.17, 0.6, 10), new THREE.MeshBasicMaterial({ color: 0xfff2b0 }));
+    core.position.set(cx, y + 3.6, cz); half(a).add(core);
+    flames.push({ glow, core, base: new THREE.Vector3(cx, y + 3.6, cz), half: half(a), out: 0 });
   }
   shadowAll(cake);
 }
+const CAKE_TOP = 6.5;
 const knife = new THREE.Group(); knife.visible = false; cake.add(knife);
 {
-  const blade = new THREE.Mesh(new THREE.BoxGeometry(0.15, 3, 26), new THREE.MeshStandardMaterial({ color: 0xe8eef7, metalness: 0.9, roughness: 0.2 }));
-  const handle = new THREE.Mesh(new THREE.BoxGeometry(0.8, 2, 7), new THREE.MeshStandardMaterial({ color: 0x8d5a3b }));
-  handle.position.set(0, 0.3, 16.5);
+  const blade = new THREE.Mesh(new THREE.BoxGeometry(0.15, 3.2, 24), new THREE.MeshPhysicalMaterial({ color: 0xeef2f8, metalness: 1, roughness: 0.18, clearcoat: 1 }));
+  const handle = new THREE.Mesh(new THREE.BoxGeometry(0.9, 2.2, 7), new THREE.MeshStandardMaterial({ color: 0x8d5a3b, roughness: 0.6 }));
+  handle.position.set(0, 0.3, 15.5);
   knife.add(blade, handle);
+}
+// the mysterious red bean (it opens like a little clam)
+const bean = new THREE.Group(); bean.visible = false; cake.add(bean);
+const beanLid = new THREE.Group();
+{
+  const outM = new THREE.MeshPhysicalMaterial({ color: 0x9e1b2c, roughness: 0.3, clearcoat: 1, clearcoatRoughness: 0.15, sheen: 0.3, sheenColor: new THREE.Color(0xff8090) });
+  const inM = new THREE.MeshStandardMaterial({ color: 0xf6e6cf, roughness: 0.8, side: THREE.BackSide });
+  const shell = new THREE.Group(); shell.scale.set(4.2, 2.9, 3.0); bean.add(shell);
+  const bottomG = new THREE.SphereGeometry(1, 48, 24, 0, Math.PI * 2, Math.PI / 2, Math.PI / 2);
+  const topG = new THREE.SphereGeometry(1, 48, 24, 0, Math.PI * 2, 0, Math.PI / 2);
+  shell.add(new THREE.Mesh(bottomG, outM), new THREE.Mesh(bottomG, inM));
+  beanLid.position.set(0, 0, -1); shell.add(beanLid);        // hinge at the back
+  const lid = new THREE.Group(); lid.position.set(0, 0, 1); beanLid.add(lid);
+  lid.add(new THREE.Mesh(topG, outM), new THREE.Mesh(topG, inM));
+  const hilum = new THREE.Mesh(new THREE.CapsuleGeometry(0.05, 0.5, 4, 10), new THREE.MeshStandardMaterial({ color: 0xfff6ea }));
+  hilum.rotation.z = Math.PI / 2; hilum.position.set(0, 0.04, 0.99); lid.add(hilum);
+  shadowAll(bean);
 }
 
 // ============================================================ finale
-let finale = null;
+let finale = null, shake = 0;
 const F = (x, y, z) => V(x, y, z).applyQuaternion(finale.fq);
+const flung = [];
+const smoke = [];
+const smokeTex = canvasTex(128, 128, (x) => {
+  const g = x.createRadialGradient(64, 64, 0, 64, 64, 64);
+  g.addColorStop(0, 'rgba(255,255,255,1)'); g.addColorStop(0.45, 'rgba(240,238,246,.75)'); g.addColorStop(1, 'rgba(230,228,240,0)');
+  x.fillStyle = g; x.fillRect(0, 0, 128, 128);
+});
+const elasticOut = t => (t <= 0 ? 0 : t >= 1 ? 1 : Math.pow(2, -10 * t) * Math.sin((t * 10 - 0.75) * (2 * Math.PI) / 3) + 1);
+
+function noiseSound(dur, freq, vol, attack = 0.05) {
+  if (!actx || muted) return;
+  const len = Math.floor(actx.sampleRate * dur), buf = actx.createBuffer(1, len, actx.sampleRate), d = buf.getChannelData(0);
+  for (let i = 0; i < len; i++) d[i] = Math.random() * 2 - 1;
+  const src = actx.createBufferSource(), flt = actx.createBiquadFilter(), g = actx.createGain();
+  src.buffer = buf; flt.type = 'lowpass'; flt.frequency.value = freq;
+  g.gain.setValueAtTime(0, actx.currentTime); g.gain.linearRampToValueAtTime(vol, actx.currentTime + attack);
+  g.gain.exponentialRampToValueAtTime(0.001, actx.currentTime + dur);
+  src.connect(flt).connect(g).connect(actx.destination); src.start();
+}
+
+function puff(pos, vel, size, life, color = 0xf4f2f8) {
+  const s = new THREE.Sprite(new THREE.SpriteMaterial({ map: smokeTex, color, transparent: true, depthWrite: false, opacity: 0, fog: false }));
+  s.position.copy(pos); s.scale.setScalar(size); scene.add(s);
+  smoke.push({ s, vel, life, max: life, size, t: 0 });
+}
+function updateSmoke(dt) {
+  for (let k = smoke.length - 1; k >= 0; k--) {
+    const p = smoke[k]; p.t += dt;
+    p.s.position.addScaledVector(p.vel, dt); p.vel.multiplyScalar(Math.exp(-dt * 1.1));
+    p.s.scale.setScalar(p.size * (1 + p.t * 0.35));
+    p.s.material.opacity = p.t < 0.25 ? (p.t / 0.25) * 0.95 : Math.max(0, 0.95 * (1 - (p.t - 0.25) / (p.max - 0.25)));
+    if (p.t >= p.max) { scene.remove(p.s); p.s.material.dispose(); smoke.splice(k, 1); }
+  }
+}
 
 function startFinale() {
   if (state === 'finale') return;
   state = 'finale';
-  ['status', 'keys'].forEach(id => $(id).classList.add('hidden'));
+  $('hud').classList.add('hidden');   // the finale is a cinematic: no HUD
   $('joystick').classList.add('hidden');
   arrowPivot.visible = false;
   for (const b of buried.values()) planetGroup.remove(b);
   buried.clear();
-  $('btnPull').classList.add('hidden');
-  finale = { phase: 'float', t: 0, fq: pq.clone(), start: girl.root.position.clone(), look: camLook.clone() };
+  $('btnPull').classList.add('hidden'); $('btnAsk').classList.add('hidden');
+  finale = { phase: 'lift', t: 0, fq: pq.clone(), start: girl.root.position.clone() };
   girl.root.quaternion.copy(pq);
   cake.quaternion.copy(finale.fq);
-  cake.scale.setScalar(0.001);
-  cake.visible = true;
   boy.root.quaternion.copy(finale.fq);
-}
-function cutCake() {
-  if (finale.phase !== 'await') return;
-  $('cutHint').classList.add('hidden');
-  finale.phase = 'cut'; finale.t = 0;
+  noiseSound(2.5, 500, 0.05, 1.5);
 }
 function next(phase) { finale.phase = phase; finale.t = 0; }
 
+// SPACE / taps during the finale
+function finaleAction() {
+  if (!finale) return;
+  if (finale.phase === 'candles') blowPress();
+  else if (finale.phase === 'awaitCut') { $('cutHint').classList.add('hidden'); next('cut'); }
+  else if (finale.phase === 'beanWait') openBean();
+}
+function blowPress() {
+  const f = finale;
+  f.blow = Math.min(1, (f.blow || 0) + 0.075); f.gust = 1;
+  noiseSound(0.35, 1800, 0.08, 0.02);
+  // a little breath of wind from her toward the candles
+  const from = girl.root.localToWorld(V(0, 2, 0.8)), to = cake.localToWorld(V(0, CAKE_TOP + 3.5, 0));
+  for (let k = 0; k < 4; k++) {
+    const s = new THREE.Sprite(new THREE.SpriteMaterial({ map: glowTex, color: 0xffffff, transparent: true, depthWrite: false, opacity: 0.6 }));
+    s.position.copy(from).add(randDir(Math.random).multiplyScalar(0.6)); s.scale.setScalar(0.9); scene.add(s);
+    particles.push({ s, vel: to.clone().sub(from).multiplyScalar(0.9 + Math.random() * 0.3), life: 0.9, max: 0.9, size: 0.9 });
+  }
+  $('blowFill').style.width = `${Math.round(f.blow * 100)}%`;
+  if (f.blow >= 1) {
+    next('blown'); $('btnBlow').classList.add('hidden');
+    noiseSound(0.8, 900, 0.18, 0.02);
+  }
+}
+function openBean() { $('whatsThat').classList.add('hidden'); next('beanOpen'); }
+
+function burstPlanet() {
+  shake = 1.6;
+  noiseSound(3.5, 260, 0.6, 0.01);
+  tone(55, 0, 1.6, 0.25, 'sine');
+  for (let k = 0; k < 120; k++) {
+    const d = randDir(Math.random), pos = d.clone().multiplyScalar(R * (0.4 + Math.random() * 0.7));
+    puff(pos, d.clone().multiplyScalar(5 + Math.random() * 9).add(randDir(Math.random).multiplyScalar(2)), 8 + Math.random() * 10, 3.6 + Math.random() * 2.2, Math.random() < 0.3 ? 0xe4e0ec : 0xf7f5fa);
+  }
+  burst(V(), 0xffffff, 60, 35, 3, 1.6);
+  // every chouchou gets flung out into space
+  for (const r of roamers) {
+    scene.attach(r.group);
+    r.mode = 'flung';
+    const out = r.group.position.clone().normalize();
+    flung.push({ g: r.group, vel: out.multiplyScalar(14 + Math.random() * 12).add(randDir(Math.random).multiplyScalar(5)), spin: randDir(Math.random).multiplyScalar(2 + Math.random() * 3), phase: Math.random() * 6 });
+  }
+  cake.visible = true; cake.scale.setScalar(0.6);
+}
+
 function updateFinale(dt, t) {
   const f = finale; f.t += dt;
-  let camPos = F(10, 24, 70), look = F(0, 6, 0), camSpeed = 1.5;
-  const girlFly = F(-15, 14, 6);
-  if (f.phase === 'float') {
-    const p = clamp(f.t / 5, 0, 1), e = ease(p);
-    girl.root.position.copy(f.start).lerp(F(0, R + 12, 0), e);
-    girl.root.scale.setScalar(lerp(1, 3, e));
-    camSpeed = 0.9;
-    if (p >= 1) { next('morph'); burst(V(), 0xffffff, 80, 30, 3, 2); }
-  } else if (f.phase === 'morph') {
-    const p = clamp(f.t / 4, 0, 1);
-    planetGroup.scale.setScalar(Math.max(0.001, 1 - ease(clamp(p / 0.6, 0, 1))));
-    cake.scale.setScalar(Math.max(0.001, easeOutBack(clamp((p - 0.3) / 0.7, 0, 1))));
-    girl.root.position.copy(F(0, R + 12, 0)).lerp(girlFly, ease(p));
-    if (f.t > 1.2 && !f.puffed) { f.puffed = true; burst(F(0, 0, 0), 0xffd6e7, 60, 25, 2.5, 1.8); }
-    if (p >= 1) { planetGroup.visible = false; next('await'); $('cutHint').classList.remove('hidden'); }
-  } else if (f.phase === 'await') {
+  const full = F(10, 22, 74), fullLook = F(0, 5, 0);
+  let camPos = full, look = fullLook, camSpeed = 1.6;
+  const girlFly = F(-17, 15, 6), girlUp = F(0, R + 10, 0);
+
+  if (f.phase === 'lift') {                       // she slowly floats up; the camera follows, then pulls back
+    const p = clamp(f.t / 7, 0, 1), e = ease(p);
+    girl.root.position.copy(f.start).lerp(girlUp, e);
+    girl.root.scale.setScalar(lerp(1, 2.4, e));
+    const z = ease(clamp((p - 0.15) / 0.85, 0, 1));
+    camPos = girl.root.position.clone().add(F(0, 4, -12)).lerp(full, z);
+    look = girl.root.position.clone().lerp(fullLook, z);
+    camSpeed = 3;
+    if (p >= 1) { next('rumble'); noiseSound(3.4, 120, 0.5, 2.5); }
+  } else if (f.phase === 'rumble') {              // the planet shakes harder and harder...
+    const p = clamp(f.t / 3.2, 0, 1);
+    shake = 0.15 + p * p * 1.1;
+    planetGroup.position.copy(randDir(Math.random).multiplyScalar(shake * 0.5));
+    girl.root.position.copy(girlUp);
+    if (Math.random() < dt * 14) {
+      const d = randDir(Math.random);
+      burst(d.multiplyScalar(R + 0.3), 0xb48a64, 4, 3, 0.8, 0.7, glowTex, false);
+    }
+    if (p >= 1) { next('smoke'); burstPlanet(); }
+  } else if (f.phase === 'smoke') {               // ...and bursts; the cake appears as the smoke clears
+    const p = clamp(f.t / 4.2, 0, 1);
+    if (f.t > 0.35) { planetGroup.visible = false; planetGroup.position.set(0, 0, 0); }
+    cake.scale.setScalar(Math.max(0.001, lerp(0.6, 1, easeOutBack(clamp(f.t / 1.6, 0, 1)))));
+    girl.root.position.copy(girlUp).lerp(girlFly, ease(p));
+    girl.root.scale.setScalar(lerp(2.4, 3, ease(p)));
+    if (p >= 1) { next('candles'); f.blow = 0; $('btnBlow').classList.remove('hidden'); }
+  } else if (f.phase === 'candles') {             // spam SPACE to blow out the candles
     girl.root.position.copy(girlFly);
-  } else if (f.phase === 'cut') {
-    const p = clamp(f.t / 4.5, 0, 1);
+    f.blow = Math.max(0, f.blow - dt * 0.12);
+    $('blowFill').style.width = `${Math.round(f.blow * 100)}%`;
+  } else if (f.phase === 'blown') {
     girl.root.position.copy(girlFly);
-    knife.visible = p < 0.6;
-    if (p < 0.35) knife.position.set(0, lerp(22, -10, ease(p / 0.35)), -3);
-    else knife.position.set(0, lerp(-10, 30, ease(clamp((p - 0.35) / 0.25, 0, 1))), -3);
-    if (p > 0.3 && !f.sliced) { f.sliced = true; burst(F(0, 9, 0), 0xffffff, 40, 10, 1.2, 1.2); }
-    const s = ease(clamp((p - 0.45) / 0.55, 0, 1));
-    halfR.position.x = 8 * s; halfR.rotation.z = -0.12 * s;
-    halfL.position.x = -8 * s; halfL.rotation.z = 0.12 * s;
-    if (p >= 1) { next('reveal'); boy.root.visible = true; }
-  } else if (f.phase === 'reveal') {
-    const p = clamp(f.t / 3.5, 0, 1);
+    if (f.t > 1.6) { next('awaitCut'); $('cutHint').classList.remove('hidden'); }
+  } else if (f.phase === 'awaitCut') {
     girl.root.position.copy(girlFly);
-    boy.root.position.copy(F(0, lerp(-6, 13, easeOutBack(p)), 0));
-    boy.root.scale.setScalar(Math.max(0.01, lerp(0.5, 3, ease(p))));
-    if (Math.random() < 0.3) burst(boy.root.position.clone().add(F(0, 4, 0)), 0xfff176, 2, 4, 0.8, 1);
-    animateCharacter(boy, t, 0, 'fly');
-    if (p >= 1) next('meet');
+  } else if (f.phase === 'cut') {                 // swoop, slam, splat, spring apart
+    girl.root.position.copy(girlFly);
+    const T = f.t;
+    knife.visible = T < 1.5;
+    if (T < 0.55) {
+      const e = ease(T / 0.55);
+      knife.position.set(lerp(34, 0, e), lerp(40, CAKE_TOP + 14, e), lerp(14, -4, e));
+      knife.rotation.set(0, lerp(-1.2, 0, e), lerp(0.9, 0, e));
+    } else if (T < 0.75) {
+      const e = Math.pow((T - 0.55) / 0.2, 3);
+      knife.position.set(0, lerp(CAKE_TOP + 14, -11, e), -4);
+      knife.rotation.set(0, 0, 0);
+    } else if (T < 1.0) {
+      knife.position.set(0, -11, -4);
+    } else {
+      const e = ease(clamp((T - 1.0) / 0.5, 0, 1));
+      knife.position.set(lerp(0, 18, e), lerp(-11, 45, e), -4);
+      knife.rotation.set(0, 0, -2.5 * e);
+    }
+    if (T >= 0.75 && !f.sliced) {
+      f.sliced = true; shake = 1.3;
+      noiseSound(0.6, 700, 0.5, 0.005); tone(90, 0, 0.5, 0.3, 'triangle');
+      const top = cake.localToWorld(V(0, CAKE_TOP + 1, 0));
+      burst(top, 0xffffff, 40, 16, 1.2, 1.4, glowTex, false);
+      burst(top, 0xe32f48, 22, 14, 0.8, 1.4, glowTex, false);
+      burst(cake.localToWorld(V(0, -2, 6)), 0xf3d593, 26, 12, 0.7, 1.2, glowTex, false);
+    }
+    const s = elasticOut(clamp((T - 0.95) / 1.6, 0, 1));
+    const wob = Math.sin(T * 9) * Math.exp(-Math.max(0, T - 0.95) * 2.2);
+    halfR.position.set(9 * s, Math.max(0, Math.sin(clamp((T - 0.95) / 0.5, 0, 1) * Math.PI)) * 1.5, 0); halfR.rotation.z = -0.14 * s - 0.06 * wob;
+    halfL.position.set(-9 * s, Math.max(0, Math.sin(clamp((T - 0.95) / 0.5, 0, 1) * Math.PI)) * 1.5, 0); halfL.rotation.z = 0.14 * s + 0.06 * wob;
+    if (T > 2.9) next('beanRise');
+  } else if (f.phase === 'beanRise') {            // something rises out of the cake...
+    girl.root.position.copy(girlFly);
+    const p = clamp(f.t / 2.4, 0, 1);
+    bean.visible = true;
+    bean.position.set(0, lerp(-6, 12, easeOutBack(p)), 0);
+    bean.scale.setScalar(Math.max(0.01, ease(Math.min(1, p * 1.6))));
+    bean.rotation.z = Math.sin(t * 3) * 0.12;
+    camPos = F(6, 17, 40); look = F(0, 11, 0);
+    if (p >= 1) { next('beanWait'); $('whatsThat').classList.remove('hidden'); }
+  } else if (f.phase === 'beanWait') {            // "What's that?"
+    girl.root.position.copy(girlFly);
+    bean.position.y = 12 + Math.sin(t * 2) * 0.4;
+    bean.rotation.z = Math.sin(t * 3) * 0.12 + Math.sin(t * 31) * 0.05 * Math.pow(Math.max(0, Math.sin(t * 1.3)), 8);
+    camPos = F(6, 17, 40); look = F(0, 11, 0);
+  } else if (f.phase === 'beanOpen') {            // it wiggles... pops open... and there he is!
+    girl.root.position.copy(girlFly);
+    const T = f.t;
+    bean.rotation.z = T < 0.9 ? Math.sin(T * 40) * 0.18 * (T / 0.9) : 0;
+    if (T >= 0.9 && !f.popped) {
+      f.popped = true; shake = 0.6;
+      popSound(); collectSound();
+      burst(cake.localToWorld(V(0, 14, 0)), 0xfff176, 50, 14, 1, 1.6);
+      burst(cake.localToWorld(V(0, 14, 0)), 0xffffff, 14, 6, 2, 2.2, heartTex, false);
+      boy.root.visible = true;
+    }
+    beanLid.rotation.x = -2.1 * easeOutBack(clamp((T - 0.9) / 0.6, 0, 1));
+    if (f.popped) {
+      const q = clamp((T - 1.0) / 2.0, 0, 1);
+      boy.root.position.copy(cake.localToWorld(V(0, lerp(11, 19, easeOutBack(q)), 0)));
+      boy.root.scale.setScalar(Math.max(0.01, lerp(0.4, 3, ease(q))));
+      animateCharacter(boy, t, 0, 'fly');
+    }
+    camPos = F(6, 18, 44); look = F(0, 13, 0);
+    if (T > 3.2) next('meet');
   } else if (f.phase === 'meet') {
     const p = clamp(f.t / 3, 0, 1), e = ease(p);
     girl.root.position.copy(girlFly);
-    boy.root.position.copy(F(0, 13, 0)).lerp(F(-10.8, 14, 6), e).add(F(0, Math.sin(p * Math.PI) * 4, 0));
+    bean.scale.setScalar(Math.max(0.001, 1 - e));
+    boy.root.position.copy(F(0, 19, 0)).lerp(F(-12.8, 15, 6), e).add(F(0, Math.sin(p * Math.PI) * 4, 0));
     girl.root.quaternion.copy(f.fq).multiply(tq.setFromAxisAngle(AY, 0.5 * e));
     boy.root.quaternion.copy(f.fq).multiply(tq.setFromAxisAngle(AY, -0.5 * e));
     animateCharacter(boy, t, 0, 'fly');
-    look = F(0, 6, 0).lerp(F(-13, 16, 6), e);
-    if (p >= 1) { next('fly'); burst(F(-12.9, 22, 6), 0xffffff, 18, 6, 2, 2, heartTex, false); }
+    look = F(0, 7, 0).lerp(F(-15, 17, 6), e);
+    if (p >= 1) { next('fly'); bean.visible = false; burst(F(-14.9, 24, 6), 0xffffff, 18, 6, 2, 2, heartTex, false); }
   } else if (f.phase === 'fly') {
     const p = clamp(f.t / 7, 0, 1), e = ease(p);
     const lift = F(Math.sin(p * 6) * 3, 60 * e, -30 * e);
     girl.root.position.copy(girlFly).add(lift);
-    boy.root.position.copy(F(-10.8, 14, 6)).add(lift);
+    boy.root.position.copy(F(-12.8, 15, 6)).add(lift);
     animateCharacter(boy, t, 0, 'fly');
     if (Math.random() < 0.25) burst(girl.root.position.clone().add(F(2, 2, 0)), 0xffffff, 1, 2, 1.4, 2.5, heartTex, false);
-    look = F(-13, 16, 6).lerp(F(-13, 40, -10), e);
+    look = F(-15, 17, 6).lerp(F(-15, 40, -10), e);
     if (p > 0.55 && !f.ended) { f.ended = true; openOverlay('ending'); }
   }
-  if (f.phase !== 'float' || f.t > 1.5) { const nk = 1 - Math.exp(-dt * 0.8); sky.material.uniforms.uTop.value.lerp(SKY.nightTop, nk); sky.material.uniforms.uBottom.value.lerp(SKY.nightBottom, nk); starsMat.opacity = Math.min(1, starsMat.opacity + dt * 0.3); }
+
+  // night falls once she leaves the ground
+  if (f.phase !== 'lift' || f.t > 2.5) { const nk = 1 - Math.exp(-dt * 0.7); sky.material.uniforms.uTop.value.lerp(SKY.nightTop, nk); sky.material.uniforms.uBottom.value.lerp(SKY.nightBottom, nk); starsMat.opacity = Math.min(1, starsMat.opacity + dt * 0.25); }
   animateCharacter(girl, t, 0, 'fly');
-  for (const fl of flames) fl.scale.y = 1.6 + Math.sin(t * 20 + fl.position.x) * 0.25;
+
+  // candles flicker, lean away when she blows, and go out
+  f.gust = Math.max(0, (f.gust || 0) - dt * 3);
+  const blownOut = ['blown', 'awaitCut', 'cut', 'beanRise', 'beanWait', 'beanOpen', 'meet', 'fly'].includes(f.phase);
+  for (const [k, fl] of flames.entries()) {
+    if (blownOut && fl.out < 1) {
+      if (fl.out === 0) puff(fl.half.localToWorld(fl.base.clone().add(V(0, 0.6, 0))), V(0, 2, 0).applyQuaternion(f.fq), 1.2, 1.6, 0xd8d4de);
+      fl.out = Math.min(1, fl.out + dt * (2 + k * 0.4));
+    }
+    const lean = f.gust * (0.6 + Math.sin(t * 40 + k) * 0.25);
+    const sc = (1 - fl.out) * (1 + Math.sin(t * 20 + k * 1.7) * 0.12) * (1 - f.gust * 0.3);
+    fl.glow.scale.set(1.2 * Math.max(0.001, sc), 1.8 * Math.max(0.001, sc), 1);
+    fl.core.scale.setScalar(Math.max(0.001, sc));
+    fl.core.rotation.z = fl.glow.material.rotation = lean;
+  }
+
+  // chouchous tumbling through space, slowly settling into a gentle drift
+  const axis = F(0, 1, 0);
+  for (const c of flung) {
+    c.g.position.addScaledVector(c.vel, dt);
+    c.vel.multiplyScalar(Math.exp(-dt * 0.85));
+    const d = c.g.position.length();
+    if (d > 58) c.g.position.multiplyScalar(58 / d);
+    c.g.position.applyAxisAngle(axis, dt * 0.05);
+    c.g.position.addScaledVector(axis, Math.sin(t * 0.8 + c.phase) * dt * 0.4);
+    c.g.rotation.x += c.spin.x * dt; c.g.rotation.y += c.spin.y * dt; c.g.rotation.z += c.spin.z * dt;
+    c.spin.multiplyScalar(Math.exp(-dt * 0.35));
+    c.g.scale.setScalar(Math.min(2.2, c.g.scale.x + dt * 0.6));
+  }
+  updateSmoke(dt);
 
   const k = 1 - Math.exp(-dt * camSpeed);
   camera.position.lerp(camPos, k);
   camLook.lerp(look, k * 1.5);
   camera.up.lerp(F(0, 1, 0), k).normalize();
+  shake = Math.max(0, shake - dt * (f.phase === 'rumble' ? 0 : 1.4));
   camera.lookAt(camLook);
+  if (shake > 0) camera.position.add(randDir(Math.random).multiplyScalar(shake * 0.35));
 }
 
 // ============================================================ loop

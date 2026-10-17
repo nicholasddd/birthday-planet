@@ -50,6 +50,12 @@
   #btnPull:active, #btnAsk:active { scale: .95; }
   #btnPull .track { margin-top: 6px; height: 4px; border-radius: 999px; background: rgba(143, 191, 99, .2); overflow: hidden; }
   #pullFill { display: block; height: 100%; width: 0; background: var(--leaf); border-radius: 999px; transition: width .08s; }
+  #btnBlow { border-radius: 14px; padding: 7px 14px 8px; font-size: 11.5px; font-weight: 600; min-width: 200px; text-align: center; touch-action: manipulation; }
+  #btnBlow .track { margin-top: 6px; height: 4px; border-radius: 999px; background: rgba(255, 179, 64, .2); overflow: hidden; }
+  #blowFill { display: block; height: 100%; width: 0; background: #f5b04a; border-radius: 999px; transition: width .08s; }
+  #whatsThat { position: fixed; bottom: max(18px, calc(env(safe-area-inset-bottom) + 8px)); left: 50%; translate: -50% 0; z-index: 14; border-radius: 18px; padding: 10px 20px 12px; text-align: center; animation: pop .4s cubic-bezier(.2,1.3,.4,1); }
+  #whatsThat .big-emoji { font-size: 26px; margin-bottom: 2px; }
+  .wt-title { font-family: 'Cormorant Garamond', serif; font-style: italic; font-weight: 600; font-size: 24px; color: var(--rose-deep); margin-bottom: 8px; }
   #cutHint { font-size: 13px; padding: 7px 14px; animation: blink 1.6s ease-in-out infinite; pointer-events: none; bottom: 14%; }
 
   /* ---------- Joystick ---------- */
@@ -154,6 +160,8 @@
 <button id="btnPull" class="glass bottom hidden"><span class="pc-text">Spam <b>SPACE</b> to pull 🥬</span><span class="pc-touch">Tap tap tap to pull 🥬</span><div class="track"><i id="pullFill"></i></div></button>
 <button id="btnAsk" class="glass bottom hidden"><span class="pc-text">💌 <b>SPACE</b> to take his letter</span><span class="pc-touch">💌 Tap to take his letter</span></button>
 <div id="cutHint" class="pill glass bottom hidden">🔪 Tap the cake to cut it</div>
+<button id="btnBlow" class="glass bottom hidden"><span class="pc-text">Spam <b>SPACE</b> to blow out the candles 🕯️</span><span class="pc-touch">Tap tap tap to blow out the candles 🕯️</span><div class="track"><i id="blowFill"></i></div></button>
+<div id="whatsThat" class="glass hidden"><div class="big-emoji">👀</div><div class="wt-title">What's that…?</div><button class="btn" id="btnLook">Take a closer look</button></div>
 
 <div id="intro" class="overlay open">
   <div class="card">

@@ -2,6 +2,7 @@
 // big head, blank cream face with two oval eyes, messy hair, cosy sweater dress, stubby boots.
 import * as THREE from 'three';
 import { softify } from './planet.js';
+import { bake } from './perf.js';
 
 const soft = (color, sheenColor = 0xffffff, extra = {}) =>
   new THREE.MeshPhysicalMaterial({ color, roughness: 1, sheen: 1, sheenRoughness: 0.6, sheenColor: new THREE.Color(sheenColor), ...extra });
@@ -102,6 +103,9 @@ export function makeChibi(o, isGirl) {
   }
 
   root.traverse(m => { if (m.isMesh) { m.castShadow = true; m.receiveShadow = true; } });
+  // merge static parts: body, then each moving limb/head on its own
+  const pivots = [parts.hipL, parts.hipR, parts.shL, parts.shR, parts.head];
+  bake(rig, pivots); pivots.forEach(p => bake(p));
   return { root, rig, parts };
 }
 

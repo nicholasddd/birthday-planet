@@ -2,6 +2,7 @@
 // Everything is generated from a seed so it looks the same on every visit.
 import * as THREE from 'three';
 import { mergeVertices, mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
+import { bake } from './perf.js';
 
 export const R = 20;            // planet radius
 export const WATER = -0.15;     // water surface height (relative to R)
@@ -132,11 +133,6 @@ const cloudMat = softify(new THREE.MeshPhysicalMaterial({
   color: 0xffffff, roughness: 1, sheen: 1, sheenRoughness: 0.5, sheenColor: new THREE.Color(0xffffff),
   emissive: 0xeef4ff, emissiveIntensity: 0.42, fog: false,
 }), { scale: 1.4, strength: 0.25 });
-const cloudShellMat = softify(new THREE.MeshPhysicalMaterial({
-  color: 0xffffff, roughness: 1, sheen: 1, sheenColor: new THREE.Color(0xffffff),
-  emissive: 0xeef4ff, emissiveIntensity: 0.45, fog: false,
-}), { scale: 1.4, strength: 0.25, shell: 0.55 });
-const eyeMat = new THREE.MeshStandardMaterial({ color: 0x8aa0c8, roughness: 0.6, fog: false });
 
 function elephantPuffs(rng) {
   // local space: +Z = forward (trunk), +Y = up
@@ -166,16 +162,11 @@ function elephantPuffs(rng) {
 }
 export function makeElephantCloud(rng) {
   const puffs = elephantPuffs(rng);
-  const geo = (grow) => mergeGeometries(puffs.map(([x, y, z, r]) => new THREE.SphereGeometry(r * grow, 16, 12).translate(x, y, z)));
+  const geo = (grow) => mergeGeometries(puffs.map(([x, y, z, r]) => new THREE.SphereGeometry(r * grow, 10, 7).translate(x, y, z)));
   const g = new THREE.Group();
   const core = new THREE.Mesh(geo(1), cloudMat); core.castShadow = true;
-  const shell = new THREE.Mesh(geo(1.07), cloudShellMat);
-  shell.userData.fuzzShell = true;
-  g.add(core, shell);
-  for (const sx of [-1, 1]) {
-    const eye = new THREE.Mesh(new THREE.SphereGeometry(0.055, 8, 6), eyeMat);
-    eye.position.set(sx * 0.26, 0.55, 1.72); g.add(eye);
-  }
+
+  g.add(core);
   return g;
 }
 
@@ -245,7 +236,7 @@ export function buildPlanet(seed = 1) {
   }
   geo.setAttribute('color', new THREE.BufferAttribute(cols, 3));
   geo.computeVertexNormals();
-  const ground = new THREE.Mesh(geo, softify(velvet({ vertexColors: true, sheenColor: new THREE.Color(0x5e9a3c), sheenRoughness: 0.8 }), { scale: 0.15, strength: 0.9, flowers: 0.55 }));
+  const ground = new THREE.Mesh(geo, softify(new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 1 }), { scale: 0.15, strength: 0.9, flowers: 0.55 }));
   ground.receiveShadow = true;
   group.add(ground);
 
@@ -312,7 +303,7 @@ export function buildPlanet(seed = 1) {
       const rail = new THREE.Mesh(new THREE.BoxGeometry(0.08, 0.08, BL * 0.95), wood);
       rail.position.set(sx, 0.75, 0); br.add(rail);
     }
-    shadowAll(br); group.add(br);
+    shadowAll(br); bake(br); group.add(br);
     b.half = BL / 2;
   }
 
@@ -397,7 +388,7 @@ export function buildPlanet(seed = 1) {
   // fuzzy balls: smooth velvet core + two cut-out "fur" shells for a soft, hairy silhouette
   const fuzzMat = softify(velvet(), { scale: 0.55, strength: 0.85 });
   const ballI = addInstanced(new THREE.SphereGeometry(1, 24, 16), fuzzMat, balls);
-  [[1.03, 0.52], [1.065, 0.6]].forEach(([r, cut]) => {
+  [[1.045, 0.55]].forEach(([r, cut]) => {
     const shell = new THREE.InstancedMesh(new THREE.SphereGeometry(r, 24, 16), softify(velvet(), { scale: 0.55, strength: 0.85, shell: cut }), ballI.count);
     shell.userData.fuzzShell = true;
     shell.instanceMatrix = ballI.instanceMatrix; shell.instanceColor = ballI.instanceColor; shell.count = ballI.count;
@@ -432,13 +423,13 @@ export function buildPlanet(seed = 1) {
       palm.add(leaf);
     }
     palm.scale.setScalar(0.9 + rng() * 0.3);
-    shadowAll(palm); placeOnSurface(palm, d, 0, rng() * 6); group.add(palm);
+    shadowAll(palm); bake(palm); placeOnSurface(palm, d, 0, rng() * 6); group.add(palm);
     obstacles.push({ dir: d, rad: 0.35 });
   }
 
   // ---------------------------------------------------------------- meadow flowers + grass tufts
   const petalG = mergeGeometries(Array.from({ length: 5 }, (_, k) => {
-    const a = (k / 5) * Math.PI * 2; return new THREE.SphereGeometry(0.075, 6, 4).scale(1, 0.5, 1).translate(Math.sin(a) * 0.08, 0.12, Math.cos(a) * 0.08);
+    const a = (k / 5) * Math.PI * 2; return new THREE.SphereGeometry(0.075, 5, 3).scale(1, 0.5, 1).translate(Math.sin(a) * 0.08, 0.12, Math.cos(a) * 0.08);
   }));
   const meadow = [];
   for (let k = 0; k < 70; k++) {

@@ -8,6 +8,7 @@ import { buildPlanet, R, mulberry32, randDir, softify } from './planet.js';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import { makeChibi, animateCharacter } from './characters.js';
 import { makeCabbageChicken } from './chickens.js';
+import { bake } from './perf.js';
 
 // ============================================================ utils
 const TOTAL = 24;
@@ -49,7 +50,7 @@ const saveProgress = () => {
 
 // ============================================================ renderer / scene
 const renderer = new THREE.WebGLRenderer({ antialias: true });
-renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
+renderer.setPixelRatio(Math.min(devicePixelRatio, 1.5));
 renderer.setSize(innerWidth, innerHeight);
 renderer.shadowMap.enabled = true;
 renderer.shadowMap.type = THREE.PCFShadowMap; // PCF + radius = soft, blurry shadows
@@ -764,6 +765,8 @@ const cutTex = canvasTex(512, 256, (x, w, h) => {
     flames.push({ glow, core, base: new THREE.Vector3(cx, y + 3.6, cz), half: half(a), out: 0 });
   }
   shadowAll(cake);
+  // merge each cake half into a few meshes (the candle flames stay separate so they can flicker)
+  bake(halfL, flames.map(f => f.core)); bake(halfR, flames.map(f => f.core));
 }
 const CAKE_TOP = 6.5;
 const knife = new THREE.Group(); knife.visible = false; cake.add(knife);
@@ -1073,8 +1076,8 @@ function updateFinale(dt, t) {
 // ============================================================ adaptive quality
 // If the device struggles, quietly step down: resolution, then fuzz shells, then glow and shadows.
 const QUALITY = [
-  { pr: Math.min(devicePixelRatio, 2), shells: true, bloom: true, shadows: true },
   { pr: Math.min(devicePixelRatio, 1.5), shells: true, bloom: true, shadows: true },
+  { pr: Math.min(devicePixelRatio, 1.25), shells: true, bloom: true, shadows: true },
   { pr: 1, shells: false, bloom: true, shadows: true },
   { pr: 0.8, shells: false, bloom: false, shadows: true },
   { pr: 0.65, shells: false, bloom: false, shadows: false },

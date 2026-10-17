@@ -345,11 +345,15 @@ $('btnStart').onclick = () => {
   state = 'play';
   $('hud').classList.remove('hidden');
   if (matchMedia('(pointer: coarse)').matches) $('joystick').classList.remove('hidden');
-  else $('keys').classList.remove('hidden');
+  if (store.get('bday-hint-ack') !== '1') { $('keys').classList.remove('hidden'); document.body.classList.add('hint-on'); }
   let waiting = 0; for (let i = 0; i < unlockedCount(); i++) if (!pulled.has(i)) waiting++;
   if (waiting) setTimeout(() => toast(`🥬 ${waiting} cabbage chicken${waiting > 1 ? 's are' : ' is'} stuck and waiting for you!`), 600);
 };
 $('btnIntroBell').onclick = askNotify;
+$('btnGotIt').onclick = () => {   // instructions only show until she's read them once
+  store.set('bday-hint-ack', '1');
+  $('keys').classList.add('hidden'); document.body.classList.remove('hint-on');
+};
 $('btnBell').onclick = askNotify;
 $('btnSound').onclick = () => { muted = !muted; store.set('bday-muted', muted ? '1' : '0'); $('btnSound').textContent = muted ? '🔇' : '🔊'; };
 $('btnSound').textContent = muted ? '🔇' : '🔊';
@@ -381,7 +385,7 @@ if (DEBUG) {
     const d = AY.clone().applyQuaternion(b.quaternion);
     pq.setFromUnitVectors(AY, d).multiply(tq.setFromAxisAngle(AX, -2.2 / R));   // stand just behind it
   });
-  add('Reset everything', () => { store.set('bday-collected', '[]'); store.set('bday-pulled', '[]'); store.set('bday-offset', '0'); location.reload(); });
+  add('Reset everything', () => { store.set('bday-collected', '[]'); store.set('bday-pulled', '[]'); store.set('bday-offset', '0'); store.set('bday-hint-ack', '0'); location.reload(); });
   document.body.appendChild(d);
 }
 
@@ -555,8 +559,14 @@ function updateChickens(dt, t) {
     if (b !== nearChicken) u.pull = Math.max(0, u.pull - dt * 0.5);
     else u.pull = Math.max(0, u.pull - dt * 0.18);
     u.tug = Math.max(0, (u.tug || 0) - dt * 6);
-    u.ch.root.position.y = SINK + u.pull * 0.45 + u.tug * 0.06;
-    u.ch.root.rotation.z = Math.sin(t * 35) * 0.12 * u.pull + Math.sin(t * 2 + u.i) * 0.04;
+    // every couple of seconds it wriggles and tugs, trying (and failing) to get out
+    const struggle = Math.pow(Math.max(0, Math.sin(t * 1.7 + u.i * 1.3)), 6);
+    const shake = Math.sin(t * 28) * (0.14 * struggle + 0.12 * u.pull);
+    u.ch.root.position.y = SINK + u.pull * 0.45 + u.tug * 0.06 + struggle * 0.1 * Math.abs(Math.sin(t * 14));
+    u.ch.root.rotation.z = shake + Math.sin(t * 2 + u.i) * 0.04;
+    u.ch.root.rotation.x = Math.sin(t * 21) * 0.06 * struggle;
+    u.ch.leaves.forEach((l, k) => { l.rotation.x = Math.sin(t * 24 + k) * 0.25 * struggle; });
+    if (struggle > 0.6 && Math.random() < dt * 8) burst(b.localToWorld(V((Math.random() - 0.5) * 1.1, 0.15, (Math.random() - 0.5) * 1.1)), 0x8a5f3f, 2, 2.5, 0.25, 0.5, glowTex, false);
     const pulse = 0.5 + 0.5 * Math.sin(t * 3 + u.i);
     u.halo.scale.setScalar(2.8 + pulse * 1.2);
     u.ring.scale.setScalar(1 + ((t * 0.6 + u.i * 0.1) % 1) * 1.5);

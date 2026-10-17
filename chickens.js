@@ -39,9 +39,13 @@ export function makeCabbageChicken(flowerColor) {
   }
   fuzzy(root, beakM, null, [0, 0.66, 0.6], [0.12, 0.1, 0.15], [0.2, 0, 0]);               // little yellow beak
 
-  // big fuzzy cabbage-leaf bow
+  // big fuzzy cabbage-leaf bow (the two big lobes can flap when it struggles)
   fuzzy(root, leafM, leafShellM, [0, 1.08, -0.03], [0.6, 0.26, 0.56]);
-  for (const s of [-1, 1]) fuzzy(root, leafM, leafShellM, [0.4 * s, 1.3, -0.05], [0.42, 0.3, 0.3], [0, 0.2 * s, -0.55 * s]);
+  const leaves = [-1, 1].map(s => {
+    const pivot = new THREE.Group(); pivot.position.set(0.15 * s, 1.2, -0.05); root.add(pivot);
+    fuzzy(pivot, leafM, leafShellM, [0.25 * s, 0.1, 0], [0.42, 0.3, 0.3], [0, 0.2 * s, -0.55 * s]);
+    return pivot;
+  });
   fuzzy(root, leafM, leafShellM, [0, 1.26, 0.04], [0.17, 0.15, 0.15]);
   fuzzy(root, leafM, leafShellM, [0.15, 1.24, -0.38], [0.36, 0.28, 0.25], [-0.4, 0, 0]);
 
@@ -63,5 +67,5 @@ export function makeCabbageChicken(flowerColor) {
   }
   head.add(new THREE.Mesh(new THREE.SphereGeometry(0.05, 10, 8), new THREE.MeshStandardMaterial({ color: 0xffe066, roughness: 0.6 })));
 
-  return { root, mouth, envelope, flower };
+  return { root, mouth, envelope, flower, leaves };
 }

@@ -127,17 +127,47 @@ export function softify(mat, { scale = 0.35, strength = 0.7, flowers = 0, shell 
   return mat;
 }
 
-// soft blurry cloud sprite texture
-const cloudTex = canvasTexture(256, (x, n) => {
-  const r = mulberry32(3);
-  for (let i = 0; i < 26; i++) {
-    const px = n * (0.2 + r() * 0.6), py = n * (0.45 + (r() - 0.5) * 0.25), rad = n * (0.1 + r() * 0.14);
-    const g = x.createRadialGradient(px, py, 0, px, py, rad);
-    g.addColorStop(0, 'rgba(255,255,255,0.55)'); g.addColorStop(1, 'rgba(255,255,255,0)');
-    x.fillStyle = g; x.fillRect(0, 0, n, n);
-  }
-}, true);
-cloudTex.wrapS = cloudTex.wrapT = THREE.ClampToEdgeWrapping;
+// fluffy elephant-shaped cloud textures (one facing right, one facing left)
+function elephantCloud(flip) {
+  return canvasTexture(512, (x, n) => {
+    const r = mulberry32(flip ? 21 : 11), k = n / 256, puffs = [];
+    const blob = (cx, cy, rx, ry, count, pr) => {        // fill an ellipse with puffs
+      for (let i = 0; i < count; i++) {
+        const a = r() * Math.PI * 2, d = Math.sqrt(r());
+        puffs.push([cx + Math.cos(a) * rx * d, cy + Math.sin(a) * ry * d, pr * (0.7 + r() * 0.6)]);
+      }
+    };
+    const line = (pts, r0, r1, count) => {                  // puffs along a curve (trunk, tail)
+      for (let i = 0; i <= count; i++) {
+        const t = i / count, seg = t * (pts.length - 1), j = Math.min(Math.floor(seg), pts.length - 2), f = seg - j;
+        puffs.push([pts[j][0] + (pts[j + 1][0] - pts[j][0]) * f, pts[j][1] + (pts[j + 1][1] - pts[j][1]) * f, r0 + (r1 - r0) * t]);
+      }
+    };
+    blob(115, 138, 58, 38, 70, 20);                          // body
+    blob(115, 112, 40, 16, 20, 18);                          // rounded back
+    blob(182, 112, 28, 28, 34, 17);                          // head
+    blob(166, 120, 20, 26, 22, 14);                          // big floppy ear
+    line([[203, 118], [216, 140], [222, 165], [216, 184], [204, 188], [199, 178]], 12, 6, 26); // curled trunk
+    for (const lx of [76, 100, 134, 158]) line([[lx, 160], [lx, 200]], 14, 13, 6);           // legs
+    line([[58, 130], [48, 145], [46, 158]], 5, 3.5, 8);      // tail
+    // soft blue-grey underside first, then the white fluff on top
+    const draw = (dx, dy, col, alpha) => {
+      for (const [px0, py0, pr] of puffs) {
+        const px = (flip ? 256 - px0 : px0) * k + dx, py = py0 * k + dy, rad = pr * k;
+        const g = x.createRadialGradient(px, py, 0, px, py, rad);
+        g.addColorStop(0, `rgba(${col},${alpha})`); g.addColorStop(0.55, `rgba(${col},${alpha * 0.85})`); g.addColorStop(1, `rgba(${col},0)`);
+        x.fillStyle = g; x.beginPath(); x.arc(px, py, rad, 0, Math.PI * 2); x.fill();
+      }
+    };
+    draw(0, 6 * k, '176,200,232', 0.5);
+    draw(0, 0, '255,255,255', 0.9);
+    // a tiny sleepy eye
+    x.fillStyle = 'rgba(150,170,205,0.55)';
+    x.beginPath(); x.ellipse((flip ? 256 - 190 : 190) * k, 106 * k, 2.5 * k, 1.6 * k, 0, 0, Math.PI * 2); x.fill();
+  }, true);
+}
+const elephantTex = [elephantCloud(false), elephantCloud(true)];
+for (const t of elephantTex) t.wrapS = t.wrapT = THREE.ClampToEdgeWrapping;
 
 // velvety material: sheen gives the soft, furry rim-light of fuzzy topiary
 const velvet = (opts = {}) => new THREE.MeshPhysicalMaterial({ roughness: 1, sheen: 1, sheenRoughness: 0.55, sheenColor: new THREE.Color(0xdcffb8), ...opts });
@@ -453,8 +483,8 @@ export function buildPlanet(seed = 1) {
   // ---------------------------------------------------------------- clouds
   const cloudPivot = new THREE.Group(); group.add(cloudPivot);
   for (let i = 0; i < 14; i++) {
-    const sp = new THREE.Sprite(new THREE.SpriteMaterial({ map: cloudTex, transparent: true, depthWrite: false, opacity: 0.9 }));
-    const w = 7 + rng() * 6; sp.scale.set(w, w * 0.55, 1);
+    const sp = new THREE.Sprite(new THREE.SpriteMaterial({ map: elephantTex[i % 2], transparent: true, depthWrite: false, opacity: 0.95, fog: false }));
+    const w = [4, 6, 8, 11, 14][i % 5] * (0.85 + rng() * 0.3); sp.scale.set(w, w, 1);   // baby to big elephants
     sp.position.copy(randDir(rng)).multiplyScalar(R + 8 + rng() * 5);
     cloudPivot.add(sp);
   }

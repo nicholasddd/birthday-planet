@@ -38,7 +38,13 @@ function unlockedCount() {
 }
 let collected = new Set();
 try { collected = new Set(JSON.parse(store.get('bday-collected') || '[]')); } catch {}
-const saveProgress = () => store.set('bday-collected', JSON.stringify([...collected]));
+let pulled = new Set();      // chickens pulled out of the ground (letter may not be taken yet)
+try { pulled = new Set(JSON.parse(store.get('bday-pulled') || '[]')); } catch {}
+for (const i of collected) pulled.add(i);
+const saveProgress = () => {
+  store.set('bday-collected', JSON.stringify([...collected]));
+  store.set('bday-pulled', JSON.stringify([...pulled]));
+};
 
 // ============================================================ renderer / scene
 const renderer = new THREE.WebGLRenderer({ antialias: true });
@@ -166,14 +172,17 @@ function syncChickens() {
   if (state === 'finale') return;
   const u = unlockedCount();
   for (let i = 0; i < u; i++) {
-    if (!collected.has(i) && !buried.has(i)) { const b = makeBuried(i); buried.set(i, b); planetGroup.add(b); }
+    if (!pulled.has(i) && !buried.has(i)) { const b = makeBuried(i); buried.set(i, b); planetGroup.add(b); }
   }
 }
 // a freed chicken that wanders the planet
 function addRoamer(i, q, ch, popping) {
   const group = new THREE.Group(); group.add(ch.root); planetGroup.add(group);
   const r = { i, q: q.clone(), ch, group, mode: popping ? 'pop' : 'roam', t: 0, turnRate: 0, turnT: 0, pause: 0, phase: Math.random() * 6 };
-  if (!popping) { ch.envelope.visible = false; ch.root.position.y = 0; }
+  if (!popping) {
+    ch.root.position.y = 0;
+    if (collected.has(i)) { ch.envelope.visible = false; ch.flower.visible = false; } else r.mode = 'present';
+  }
   roamers.push(r);
   placeRoamer(r);
   return r;
@@ -251,12 +260,12 @@ async function askNotify() {
 function updateTimeUI() {
   $('clock').textContent = new Date(now()).toLocaleString([], { weekday: 'short', hour: '2-digit', minute: '2-digit' });
   const u = unlockedCount();
-  let waiting = 0;
-  for (let i = 0; i < u; i++) if (!collected.has(i)) waiting++;
+  let waiting = 0, holding = 0;
+  for (let i = 0; i < u; i++) { if (!pulled.has(i)) waiting++; else if (!collected.has(i)) holding++; }
   $('count').textContent = `${collected.size} / ${TOTAL}`;
   $('catBadge').textContent = collected.size;
   const st = $('status');
-  st.classList.toggle('ready', waiting > 0);
+  st.classList.toggle('ready', waiting + holding > 0);
   if (state === 'finale') st.classList.add('hidden');
   else if (collected.size === TOTAL) {
     if (!$('btnFinale')) {
@@ -268,7 +277,9 @@ function updateTimeUI() {
     const next = u < TOTAL ? ` · next in ${fmtDur(unlockTime(u) - now())}` : '';
     st.textContent = waiting > 0
       ? `🥬 ${waiting} cabbage chicken${waiting > 1 ? 's are' : ' is'} stuck in the ground!${next}`
-      : `🌱 Next cabbage chicken pops up in ${fmtDur(unlockTime(u) - now())}`;
+      : holding > 0
+        ? `💌 ${holding > 1 ? holding + ' chickens are' : 'A chicken is'} waiting to give you a letter!${next}`
+        : `🌱 Next cabbage chicken pops up in ${fmtDur(unlockTime(u) - now())}`;
   }
   if (u > lastUnlocked) {
     toast('🥬 A cabbage chicken just got stuck somewhere! Follow the light ✨');
@@ -291,6 +302,10 @@ function renderCatalogue() {
       el.innerHTML = `<span class="em">🐣${EMOJI[i % EMOJI.length]}</span><b></b>`;
       el.querySelector('b').textContent = L.title || `Hour ${i + 1}`;
       el.onclick = () => { closeOverlay('catalogue'); openLetter(i); };
+    } else if (pulled.has(i)) {
+      el.className = 'slot waiting';
+      el.innerHTML = `<span class="em">🐣💌</span><b>Hour ${i + 1}</b><span>Has a letter for you!</span>`;
+      el.onclick = () => closeOverlay('catalogue');
     } else if (i < u) {
       el.className = 'slot waiting';
       el.innerHTML = `<span class="em">🥬</span><b>Hour ${i + 1}</b><span>Stuck in the ground!</span>`;
@@ -306,7 +321,7 @@ function renderCatalogue() {
 function openOverlay(id) { $(id).classList.add('open'); modalOpen = true; }
 function closeOverlay(id) {
   $(id).classList.remove('open');
-  modalOpen = ['intro', 'letter', 'catalogue', 'ending'].some(k => $(k).classList.contains('open'));
+  modalOpen = ['intro', 'offer', 'letter', 'catalogue', 'ending'].some(k => $(k).classList.contains('open'));
 }
 
 function openLetter(i) {
@@ -331,7 +346,7 @@ $('btnStart').onclick = () => {
   $('hud').classList.remove('hidden');
   if (matchMedia('(pointer: coarse)').matches) $('joystick').classList.remove('hidden');
   else $('keys').classList.remove('hidden');
-  let waiting = 0; for (let i = 0; i < unlockedCount(); i++) if (!collected.has(i)) waiting++;
+  let waiting = 0; for (let i = 0; i < unlockedCount(); i++) if (!pulled.has(i)) waiting++;
   if (waiting) setTimeout(() => toast(`🥬 ${waiting} cabbage chicken${waiting > 1 ? 's are' : ' is'} stuck and waiting for you!`), 600);
 };
 $('btnIntroBell').onclick = askNotify;
@@ -342,11 +357,6 @@ $('btnCat').onclick = () => { renderCatalogue(); openOverlay('catalogue'); };
 $('btnCloseCat').onclick = () => closeOverlay('catalogue');
 $('btnCloseLetter').onclick = () => {
   closeOverlay('letter');
-  // the chicken that just handed over this letter is now free to roam
-  for (const r of roamers) if (r.mode === 'present') {
-    r.mode = 'roam'; r.ch.envelope.visible = false;
-    burst(r.group.localToWorld(V(0, 1.6, 0)), 0xffffff, 6, 2, 0.8, 1.6, heartTex, false);
-  }
   if (pendingFinale.v) { pendingFinale.v = false; toast('💫 Something magical is happening…'); setTimeout(startFinale, 1500); }
 };
 $('btnEndCat').onclick = () => { closeOverlay('ending'); renderCatalogue(); openOverlay('catalogue'); };
@@ -364,14 +374,14 @@ if (DEBUG) {
   add('Jump to start', () => setOff(startMs - Date.now() + 1000));
   add('+1 hour', () => setOff(timeOffset + HOUR));
   add('Unlock all', () => setOff(startMs + TOTAL * HOUR - Date.now()));
-  add('Collect all → finale', () => { for (let i = 0; i < TOTAL; i++) if (!collected.has(i)) freeChicken(i, true); updateTimeUI(); startFinale(); });
+  add('Collect all → finale', () => { for (let i = 0; i < TOTAL; i++) if (!collected.has(i)) freeChicken(i, true); for (const r of roamers) if (r.mode === 'present') receiveFrom(r, true); updateTimeUI(); startFinale(); });
   add('Planet view on/off', () => { overview = !overview; });
   add('Teleport to a chicken', () => {
     const b = buried.values().next().value; if (!b) return toast('No stuck chickens right now');
     const d = AY.clone().applyQuaternion(b.quaternion);
     pq.setFromUnitVectors(AY, d).multiply(tq.setFromAxisAngle(AX, -2.2 / R));   // stand just behind it
   });
-  add('Reset everything', () => { store.set('bday-collected', '[]'); store.set('bday-offset', '0'); location.reload(); });
+  add('Reset everything', () => { store.set('bday-collected', '[]'); store.set('bday-pulled', '[]'); store.set('bday-offset', '0'); location.reload(); });
   document.body.appendChild(d);
 }
 
@@ -380,9 +390,12 @@ const keys = {};
 addEventListener('keydown', e => {
   keys[e.code] = true;
   if (state === 'finale' && finale?.phase === 'await' && (e.code === 'Space' || e.code === 'Enter')) cutCake();
-  if (e.code === 'Space') { e.preventDefault(); if (!e.repeat) pullPress(); }
+  if (e.code === 'Space') { e.preventDefault(); if (!e.repeat) { if (nearHolder) offerLetter(nearHolder); else pullPress(); } }
 });
 $('btnPull').addEventListener('pointerdown', e => { e.preventDefault(); pullPress(); });
+$('btnAsk').addEventListener('pointerdown', e => { e.preventDefault(); if (nearHolder) offerLetter(nearHolder); });
+$('btnReceive').onclick = () => { closeOverlay('offer'); if (offering) receiveFrom(offering); offering = null; };
+$('btnLater').onclick = () => { closeOverlay('offer'); offering = null; toast('🐣 He\'ll wait right here for you'); };
 addEventListener('keyup', e => { keys[e.code] = false; });
 const joy = { x: 0, y: 0, id: null };
 {
@@ -417,7 +430,7 @@ function blocked(oldDir, newDir, pad = 0.35) {
   return false;
 }
 
-let nearChicken = null;
+let nearChicken = null, nearHolder = null, offering = null;
 function updatePlayer(dt, t) {
   const canMove = state === 'play' && !modalOpen;
   // camera-relative movement: W/S forward/back, A/D left/right. The camera never turns;
@@ -451,6 +464,9 @@ function updatePlayer(dt, t) {
   }
   nearChicken = best && bestD < 2.8 && canMove ? best : null;
   $('btnPull').classList.toggle('hidden', !nearChicken);
+  nearHolder = null;
+  if (canMove && !nearChicken) for (const r of roamers) if (r.mode === 'present' && r.group.position.distanceTo(girl.root.position) < 3) nearHolder = r;
+  $('btnAsk').classList.toggle('hidden', !nearHolder);
   arrowPivot.visible = !!best && bestD > 6;
   if (best) {
     const local = girl.root.worldToLocal(best.position.clone());
@@ -498,15 +514,36 @@ function freeChicken(i, instant = false) {
     const r = addRoamer(i, holder.quaternion, ch, !instant);
     ch.root.position.y = SINK + 0.4;
     if (!instant) burst(holder.localToWorld(V(0, 0.6, 0)), PALETTE[i % PALETTE.length], 40, 7, 0.8, 1.4);
-    else { r.mode = 'roam'; ch.envelope.visible = false; ch.root.position.y = 0; }
+    else ch.root.position.y = 0;
   }
-  collected.add(i); saveProgress();
+  pulled.add(i); if (instant) collected.add(i);
+  saveProgress();
   if (instant) return;
   nearChicken = null; $('btnPull').classList.add('hidden');
-  popSound(); collectSound();
+  popSound();
   updateTimeUI();
+  const r = roamers.find(x => x.i === i);
+  setTimeout(() => offerLetter(r), 1200);
+}
+
+// "Oh, he has a letter for you!"
+function offerLetter(r) {
+  if (!r || r.mode === 'roam' || modalOpen || state !== 'play') return;
+  offering = r;
+  openOverlay('offer');
+}
+// she takes the letter: letter + flower leave the beak, and the chicken is free
+function receiveFrom(r, silent = false) {
+  r.ch.envelope.visible = false; r.ch.flower.visible = false;
+  r.mode = 'roam';
+  collected.add(r.i); saveProgress();
+  updateTimeUI();
+  if (silent) return;
+  burst(r.group.localToWorld(V(0, 1.6, 0)), 0xffffff, 8, 2.5, 0.8, 1.6, heartTex, false);
+  burst(r.group.localToWorld(V(0, 0.7, 0.8)), PALETTE[r.i % PALETTE.length], 24, 5, 0.6, 1.2);
+  collectSound();
   if (collected.size === TOTAL) pendingFinale.v = true;
-  setTimeout(() => openLetter(i), 1100);
+  setTimeout(() => openLetter(r.i), 400);
 }
 
 function updateChickens(dt, t) {
@@ -741,8 +778,8 @@ addEventListener('resize', () => {
   renderer.setSize(innerWidth, innerHeight); composer.setSize(innerWidth, innerHeight);
 });
 
-// chickens rescued on earlier visits are already roaming
-for (const i of collected) addRoamer(i, new THREE.Quaternion().setFromUnitVectors(AY, flowerDirs[i]), makeCabbageChicken(new THREE.Color(PALETTE[i % PALETTE.length])), false);
+// chickens pulled out on earlier visits: roaming, or still waiting to hand over their letter
+for (const i of pulled) addRoamer(i, new THREE.Quaternion().setFromUnitVectors(AY, flowerDirs[i]), makeCabbageChicken(new THREE.Color(PALETTE[i % PALETTE.length])), false);
 syncChickens();
 updateTimeUI();
 setInterval(() => { syncChickens(); updateTimeUI(); }, 1000);

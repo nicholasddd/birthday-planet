@@ -71,6 +71,7 @@
   .slot b { font-weight: 600; }
 
   #btnPull { position: fixed; bottom: max(96px, calc(env(safe-area-inset-bottom) + 80px)); left: 50%; transform: translateX(-50%); z-index: 12; background: white; border-radius: 22px; padding: 12px 22px 14px; box-shadow: var(--shadow); font-size: 17px; font-weight: 700; text-align: center; min-width: 240px; touch-action: manipulation; animation: wobble .5s ease-in-out infinite; }
+  #btnAsk { position: fixed; bottom: max(96px, calc(env(safe-area-inset-bottom) + 80px)); left: 50%; transform: translateX(-50%); z-index: 12; background: white; border-radius: 22px; padding: 12px 22px; box-shadow: var(--shadow); font-size: 17px; font-weight: 700; touch-action: manipulation; animation: wobble .5s ease-in-out infinite; }
   #btnPull:active { transform: translateX(-50%) scale(.94); }
   #btnPull .track { margin-top: 8px; height: 10px; border-radius: 999px; background: #eef3e4; overflow: hidden; }
   #pullFill { display: block; height: 100%; width: 0; background: linear-gradient(90deg, #9bd35a, #6cbd3c); border-radius: 999px; transition: width .08s; }
@@ -107,6 +108,7 @@
 <div id="joystick" class="hidden"><div id="knob"></div></div>
 <div id="toasts"></div>
 <button id="btnPull" class="hidden"><span class="pc-text">Spam <b>SPACE</b> to pull! 🥬</span><span class="pc-touch">Tap tap tap to pull! 🥬</span><div class="track"><i id="pullFill"></i></div></button>
+<button id="btnAsk" class="hidden"><span class="pc-text">💌 Press <b>SPACE</b> to take his letter</span><span class="pc-touch">💌 Tap to take his letter</span></button>
 <div id="cutHint" class="pill hidden">🔪 Tap the cake to cut it!</div>
 
 <div id="intro" class="overlay open">
@@ -126,6 +128,16 @@
     <img id="letterImg" alt="Handwritten letter" class="hidden" />
     <div id="letterText" class="hidden"></div>
     <button class="btn" id="btnCloseLetter">Keep exploring 💕</button>
+  </div>
+</div>
+
+<div id="offer" class="overlay">
+  <div class="card">
+    <div style="font-size:54px;line-height:1">🐣💌</div>
+    <h1>Oh, he has a letter for you!</h1>
+    <p>Would you like to receive it?</p>
+    <button class="btn" id="btnReceive">Receive it 💌</button>
+    <br /><button class="btn soft" id="btnLater">Maybe later</button>
   </div>
 </div>
 

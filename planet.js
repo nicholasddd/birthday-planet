@@ -89,11 +89,11 @@ const flowerTex = canvasTexture(512, (x, n) => {
   }
 }, true);
 
-export function softify(mat, { scale = 0.35, strength = 0.7, flowers = 0 } = {}) {
+export function softify(mat, { scale = 0.35, strength = 0.7, flowers = 0, shell = 0 } = {}) {
   mat.onBeforeCompile = sh => {
     Object.assign(sh.uniforms, {
       uDetail: { value: detailTex }, uFlowers: { value: flowerTex },
-      uScale: { value: scale }, uStrength: { value: strength }, uFlowerAmt: { value: flowers },
+      uScale: { value: scale }, uStrength: { value: strength }, uFlowerAmt: { value: flowers }, uShell: { value: shell },
     });
     sh.vertexShader = sh.vertexShader
       .replace('#include <common>', '#include <common>\nvarying vec3 vTPos;\nvarying vec3 vTNorm;')
@@ -107,12 +107,13 @@ export function softify(mat, { scale = 0.35, strength = 0.7, flowers = 0 } = {})
       .replace('#include <common>', `#include <common>
         varying vec3 vTPos; varying vec3 vTNorm;
         uniform sampler2D uDetail; uniform sampler2D uFlowers;
-        uniform float uScale; uniform float uStrength; uniform float uFlowerAmt;`)
+        uniform float uScale; uniform float uStrength; uniform float uFlowerAmt; uniform float uShell;`)
       .replace('#include <color_fragment>', `#include <color_fragment>
         {
           vec3 bw = pow(abs(normalize(vTNorm)), vec3(4.0)); bw /= dot(bw, vec3(1.0));
           vec3 p = vTPos * uScale;
           float d = texture2D(uDetail, p.yz).r * bw.x + texture2D(uDetail, p.xz).r * bw.y + texture2D(uDetail, p.xy).r * bw.z;
+          if (uShell > 0.0 && d < uShell) discard;   // fur shells: keep only the brighter strands
           diffuseColor.rgb *= mix(1.0, d * 2.0, uStrength);
           if (uFlowerAmt > 0.0) {
             vec3 q = p * 1.1;
@@ -122,7 +123,7 @@ export function softify(mat, { scale = 0.35, strength = 0.7, flowers = 0 } = {})
           }
         }`);
   };
-  mat.customProgramCacheKey = () => `soft-${scale}-${strength}-${flowers}`;
+  mat.customProgramCacheKey = () => `soft-${scale}-${strength}-${flowers}-${shell}`;
   return mat;
 }
 
@@ -137,6 +138,9 @@ const cloudTex = canvasTexture(256, (x, n) => {
   }
 }, true);
 cloudTex.wrapS = cloudTex.wrapT = THREE.ClampToEdgeWrapping;
+
+// velvety material: sheen gives the soft, furry rim-light of fuzzy topiary
+const velvet = (opts = {}) => new THREE.MeshPhysicalMaterial({ roughness: 1, sheen: 1, sheenRoughness: 0.55, sheenColor: new THREE.Color(0xdcffb8), ...opts });
 
 export function buildPlanet(seed = 1) {
   const rng = mulberry32(seed * 7919 + 13);
@@ -201,7 +205,7 @@ export function buildPlanet(seed = 1) {
   }
   geo.setAttribute('color', new THREE.BufferAttribute(cols, 3));
   geo.computeVertexNormals();
-  const ground = new THREE.Mesh(geo, softify(new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 1 }), { scale: 0.15, strength: 0.9, flowers: 1.0 }));
+  const ground = new THREE.Mesh(geo, softify(velvet({ vertexColors: true, sheenColor: new THREE.Color(0x5e9a3c), sheenRoughness: 0.8 }), { scale: 0.15, strength: 0.9, flowers: 0.55 }));
   ground.receiveShadow = true;
   group.add(ground);
 
@@ -280,54 +284,92 @@ export function buildPlanet(seed = 1) {
     return { h, wet: s.h < WATER && h < 0 };
   }
 
-  // ---------------------------------------------------------------- trees (instanced)
+  // ---------------------------------------------------------------- topiary trees, bushes & mounds
+  // Shapes: 'lolly' (ball on a thin trunk), 'topiary' (stacked balls), 'bush' (ball on the ground)
   const obstacles = [];
   const forests = Array.from({ length: 7 }, () => ({ c: randDir(rng), r: 0.35 + rng() * 0.25 }));
   const trees = [];
-  for (let k = 0; k < 4000 && trees.length < 380; k++) {
+  for (let k = 0; k < 4000 && trees.length < 260; k++) {
     const d = randDir(rng);
     const inForest = forests.some(f => f.c.angleTo(d) < f.r);
-    if (rng() > (inForest ? 0.95 : 0.1)) continue;
+    if (rng() > (inForest ? 0.9 : 0.1)) continue;
     if (d.angleTo(AY) < 0.16) continue;
     const s = sample(d.x, d.y, d.z);
-    if (isWet(s) || s.pd < PW * 1.6) continue;
-    if (flowerDirs.some(f => f.angleTo(d) < 0.11)) continue;
-    if (bridges.some(b => b.dir.angleTo(d) < 0.12)) continue;
-    const sc = 0.75 + rng() * 0.55;
-    if (trees.some(t => t.d.angleTo(d) * R < (t.s + sc) * 0.75)) continue;
-    trees.push({ d, s: sc, kind: inForest && rng() < 0.18 ? 'cedar' : 'round', spin: rng() * 6, fruit: rng() < 0.55 ? Math.floor(rng() * 3) : -1, tint: rng() });
+    if (isWet(s) || s.pd < PW * 1.8) continue;
+    if (flowerDirs.some(f => f.angleTo(d) < 0.12)) continue;
+    if (bridges.some(b => b.dir.angleTo(d) < 0.13)) continue;
+    const sc = 0.75 + rng() * 0.5;
+    if (trees.some(t => t.d.angleTo(d) * R < (t.s + sc) * 1.05)) continue;
+    const roll = rng();
+    const kind = roll < 0.45 ? 'lolly' : roll < 0.7 ? 'topiary' : 'bush';
+    trees.push({ d, s: sc, kind, spin: rng() * 6, tilt: (rng() - 0.5) * 0.15, fruit: kind === 'lolly' && rng() < 0.4, leafy: rng() < (kind === 'topiary' ? 0 : 0.4), tint: rng() });
   }
-  const dummy = new THREE.Object3D(), m4 = new THREE.Matrix4();
-  const sphere = (r, x, y, z) => new THREE.SphereGeometry(r, 16, 12).translate(x, y, z);
-  const canopyG = mergeGeometries([sphere(1.0, 0, 2.05, 0), sphere(0.72, 0.6, 1.75, 0.2), sphere(0.7, -0.55, 1.8, -0.25), sphere(0.62, 0.05, 2.65, -0.1), sphere(0.6, -0.1, 1.75, 0.6)]);
-  const trunkG = new THREE.CylinderGeometry(0.17, 0.26, 1.3, 8).translate(0, 0.65, 0);
-  const cedarG = mergeGeometries([0, 1, 2].map(k => new THREE.ConeGeometry(1.1 - k * 0.28, 1.3, 10).translate(0, 1.3 + k * 0.75, 0)));
-  const fruitOffsets = [[0.75, 2.05, 0.6], [-0.6, 2.2, 0.7], [0.2, 1.6, 0.95], [-0.85, 1.75, -0.4], [0.5, 2.6, -0.55]];
-  const rounds = trees.filter(t => t.kind === 'round'), cedars = trees.filter(t => t.kind === 'cedar');
-  const fruitCount = rounds.filter(t => t.fruit >= 0).length * fruitOffsets.length;
+  // big soft grassy mounds in the open meadows
+  const mounds = [];
+  for (let k = 0; k < 400 && mounds.length < 14; k++) {
+    const d = randDir(rng); if (d.angleTo(AY) < 0.3) continue;
+    const s = sample(d.x, d.y, d.z), r = 1.8 + rng() * 2;
+    if (isWet(s) || s.pd < PW + r / R || s.ld < BEACH + r / R) continue;
+    if (flowerDirs.some(f => f.angleTo(d) * R < r + 1.5) || trees.some(t => t.d.angleTo(d) * R < r + 0.8) || bridges.some(b => b.dir.angleTo(d) * R < r + 2)) continue;
+    if (mounds.some(m => m.d.angleTo(d) * R < m.r + r)) continue;
+    mounds.push({ d, r });
+  }
 
-  const trunkI = new THREE.InstancedMesh(trunkG, new THREE.MeshStandardMaterial({ color: 0x8a5a3c, roughness: 0.9 }), trees.length);
-  const canopyI = new THREE.InstancedMesh(canopyG, softify(new THREE.MeshStandardMaterial({ roughness: 1 }), { scale: 0.45, strength: 0.9, flowers: 0.3 }), Math.max(1, rounds.length));
-  const cedarI = new THREE.InstancedMesh(cedarG, softify(new THREE.MeshStandardMaterial({ roughness: 1 }), { scale: 0.45, strength: 0.9 }), Math.max(1, cedars.length));
-  const fruitI = new THREE.InstancedMesh(new THREE.SphereGeometry(0.13, 10, 8), new THREE.MeshStandardMaterial({ roughness: 0.4 }), Math.max(1, fruitCount));
-  const leafCols = [0x62b743, 0x77c853, 0x58a83c, 0x86d160].map(C), cedarCols = [0x4f9a5c, 0x5aa866].map(C), fruitCols = [0xff4a3d, 0xffb020, 0xff7aa8].map(C);
-  let ri = 0, ci = 0, fi = 0;
-  trees.forEach((t, i) => {
-    placeOnSurface(dummy, t.d, -0.05, t.spin); dummy.scale.setScalar(t.s); dummy.updateMatrix();
-    trunkI.setMatrixAt(i, dummy.matrix);
-    if (t.kind === 'round') {
-      canopyI.setMatrixAt(ri, dummy.matrix); canopyI.setColorAt(ri++, leafCols[Math.floor(t.tint * leafCols.length)]);
-      if (t.fruit >= 0) for (const o of fruitOffsets) {
-        fruitI.setMatrixAt(fi, m4.makeTranslation(o[0], o[1], o[2]).premultiply(dummy.matrix));
-        fruitI.setColorAt(fi++, fruitCols[t.fruit]);
-      }
+  const dummy = new THREE.Object3D(), m4 = new THREE.Matrix4(), m5 = new THREE.Matrix4();
+  const balls = [], leafyBalls = [], trunks = [], fruits = [];
+  const fuzzCols = [0x6cb045, 0x78bb4c, 0x64a63f, 0x82c254].map(C), leafCols = [0x3f7f34, 0x4a8c3a, 0x35702d].map(C);
+  const ball = (list, base, x, y, z, rx, ry, col) => list.push({ m: m4.clone().multiply(m5.compose(new THREE.Vector3(x, y, z), new THREE.Quaternion(), new THREE.Vector3(rx, ry, rx))), col });
+  for (const t of trees) {
+    placeOnSurface(dummy, t.d, -0.05, t.spin); dummy.rotateX(t.tilt); dummy.scale.setScalar(t.s); dummy.updateMatrix();
+    m4.copy(dummy.matrix);
+    const list = t.leafy ? leafyBalls : balls, col = (t.leafy ? leafCols : fuzzCols)[Math.floor(t.tint * (t.leafy ? 3 : 4))];
+    if (t.kind === 'lolly') {
+      trunks.push(m4.clone());
+      ball(list, m4, 0, 2.75, 0, 1.15, 1.15, col);
+      if (t.fruit) for (const [x, y, z] of [[0.75, 2.0, 0.55], [-0.5, 1.95, 0.75], [0.15, 1.85, -0.85]]) fruits.push(m4.clone().multiply(m5.makeTranslation(x, y, z)));
+      obstacles.push({ dir: t.d, rad: 0.95 * t.s });
+    } else if (t.kind === 'topiary') {
+      ball(list, m4, 0, 1.0, 0, 1.15, 1.1, col);
+      ball(list, m4, 0.05, 2.45, 0, 0.82, 0.8, col);
+      ball(list, m4, 0.08, 3.5, 0, 0.55, 0.55, col);
+      obstacles.push({ dir: t.d, rad: 1.1 * t.s });
     } else {
-      cedarI.setMatrixAt(ci, dummy.matrix); cedarI.setColorAt(ci++, cedarCols[Math.floor(t.tint * cedarCols.length)]);
+      ball(list, m4, 0, 0.45, 0, 1.0, 0.85, col);
+      obstacles.push({ dir: t.d, rad: 0.95 * t.s });
     }
-    obstacles.push({ dir: t.d, rad: 0.45 * t.s });
+  }
+  for (const md of mounds) {
+    placeOnSurface(dummy, md.d, -md.r * 0.55, rng() * 6); dummy.scale.set(md.r, md.r * 0.75, md.r * 1.2); dummy.updateMatrix();
+    balls.push({ m: dummy.matrix.clone(), col: C(0x6aac44) });
+    obstacles.push({ dir: md.d, rad: md.r * 0.9 });
+  }
+
+  const addInstanced = (geo, mat, items) => {
+    const im = new THREE.InstancedMesh(geo, mat, Math.max(1, items.length));
+    items.forEach((it, i) => { im.setMatrixAt(i, it.m || it); if (it.col) im.setColorAt(i, it.col); });
+    im.count = items.length; im.castShadow = true; im.receiveShadow = true; group.add(im);
+    return im;
+  };
+  // fuzzy balls: smooth velvet core + two cut-out "fur" shells for a soft, hairy silhouette
+  const fuzzMat = softify(velvet(), { scale: 0.55, strength: 0.85 });
+  const ballI = addInstanced(new THREE.SphereGeometry(1, 40, 28), fuzzMat, balls);
+  [[1.03, 0.52], [1.065, 0.6]].forEach(([r, cut]) => {
+    const shell = new THREE.InstancedMesh(new THREE.SphereGeometry(r, 40, 28), softify(velvet(), { scale: 0.55, strength: 0.85, shell: cut }), ballI.count);
+    shell.instanceMatrix = ballI.instanceMatrix; shell.instanceColor = ballI.instanceColor; shell.count = ballI.count;
+    shell.receiveShadow = true; group.add(shell);
   });
-  canopyI.count = ri; cedarI.count = ci; fruitI.count = fi;
-  for (const m of [trunkI, canopyI, cedarI, fruitI]) { m.castShadow = true; m.receiveShadow = true; group.add(m); }
+  // leafy balls: bumpy surface with a finer leaf texture
+  let leafyG = new THREE.IcosahedronGeometry(1, 6); leafyG.deleteAttribute('normal'); leafyG.deleteAttribute('uv'); leafyG = mergeVertices(leafyG);
+  { const p = leafyG.attributes.position, v = new THREE.Vector3();
+    for (let i = 0; i < p.count; i++) {
+      v.fromBufferAttribute(p, i);
+      const n = Math.sin(v.x * 17) * Math.sin(v.y * 15 + 1) * Math.sin(v.z * 16 + 2) + 0.5 * Math.sin(v.x * 37 + v.z * 29) * Math.cos(v.y * 33);
+      v.multiplyScalar(1 + 0.045 * n); p.setXYZ(i, v.x, v.y, v.z);
+    }
+    leafyG.computeVertexNormals(); }
+  addInstanced(leafyG, softify(new THREE.MeshPhysicalMaterial({ roughness: 0.75, sheen: 0.5, sheenColor: new THREE.Color(0xb8f0a0) }), { scale: 1.6, strength: 1.1 }), leafyBalls);
+  addInstanced(new THREE.CylinderGeometry(0.075, 0.1, 2.0, 10).translate(0, 1.0, 0), new THREE.MeshStandardMaterial({ color: 0x8c6b55, roughness: 0.8 }), trunks);
+  addInstanced(new THREE.SphereGeometry(0.16, 16, 12), new THREE.MeshPhysicalMaterial({ color: 0xe0322a, roughness: 0.3, clearcoat: 0.6 }), fruits);
 
   // palms around the lagoon beach
   const palmTrunkM = new THREE.MeshStandardMaterial({ color: 0xc89a64, roughness: 0.9 }), palmLeafM = softify(new THREE.MeshStandardMaterial({ color: 0x74c35e, roughness: 1 }), { scale: 0.9, strength: 0.6 });
@@ -370,7 +412,7 @@ export function buildPlanet(seed = 1) {
 
   const tuftG = mergeGeometries([-0.12, 0, 0.12].map((x, k) => new THREE.ConeGeometry(0.06, 0.35 - k * 0.05, 4).translate(x, 0.16, (k - 1) * 0.04)));
   const tufts = [];
-  for (let k = 0; k < 8000 && tufts.length < 2600; k++) {
+  for (let k = 0; k < 8000 && tufts.length < 0; k++) { // tufts off: too spiky for the soft look
     const d = randDir(rng), s = sample(d.x, d.y, d.z);
     if (!isWet(s) && s.pd > PW) tufts.push(d);
   }
@@ -385,7 +427,7 @@ export function buildPlanet(seed = 1) {
 
   // scattered wildflower dots (like the meadow in a field of pink/white/yellow)
   const dots = [];
-  for (let k = 0; k < 9000 && dots.length < 3200; k++) {
+  for (let k = 0; k < 9000 && dots.length < 1800; k++) {
     const d = randDir(rng), s = sample(d.x, d.y, d.z);
     if (!isWet(s) && s.pd > PW) dots.push(d);
   }

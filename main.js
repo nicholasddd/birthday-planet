@@ -392,13 +392,14 @@ if (DEBUG) {
   add('Collect all → finale', () => { for (let i = 0; i < TOTAL; i++) if (!collected.has(i)) freeChicken(i, true); for (const r of roamers) if (r.mode === 'present') receiveFrom(r, true); updateTimeUI(); startFinale(); });
   add('Planet view on/off', () => { overview = !overview; });
   add('Teleport to a chouchou', () => {
-    const b = buried.values().next().value; if (!b) return toast('No stuck chouchous right now');
-    const d = AY.clone().applyQuaternion(b.quaternion);
-    pq.setFromUnitVectors(AY, d).multiply(tq.setFromAxisAngle(AX, -2.2 / R));   // stand just behind it
+    const b = buried.values().next().value || roamers[0]?.group; if (!b) return toast('No chouchous right now');
+    const d = b.position.clone().normalize();
+    pq.setFromUnitVectors(AY, d).multiply(tq.setFromAxisAngle(AX, -3.2 / R));   // stand just behind it
   });
   add('Reset everything', () => { store.set('bday-collected', '[]'); store.set('bday-pulled', '[]'); store.set('bday-offset', '0'); store.set('bday-hint-ack', '0'); location.reload(); });
   document.body.appendChild(d);
   window.__phase = () => finale?.phase;   // for testing
+  window.__roamers = () => roamers.map(r => r.mode);
 }
 
 // ============================================================ input
@@ -612,6 +613,48 @@ function updateChickens(dt, t) {
       root.position.y = Math.abs(Math.sin(t * 6)) * 0.12;
       continue;
     }
+    // when she comes close: hop with excitement, run over, and cuddle her
+    r.cool = Math.max(0, (r.cool || 0) - dt);
+    const toGirl = girl.root.position.distanceTo(r.group.position);
+    if (r.mode === 'roam' && r.cool <= 0 && toGirl < 4.5 && state === 'play' && !modalOpen) {
+      r.mode = 'excited'; r.t = 0; tone(1046.5, 0, 0.15, 0.08, 'triangle'); tone(1318.5, 0.1, 0.2, 0.08, 'triangle');
+    }
+    if (r.mode === 'excited' || r.mode === 'approach' || r.mode === 'cuddle') {
+      // always turn to face her
+      const rel = girl.root.position.clone().sub(r.group.position).applyQuaternion(r.q.clone().invert());
+      const yaw = Math.atan2(rel.x, rel.z);
+      r.q.multiply(tq.setFromAxisAngle(AY, yaw * Math.min(1, dt * 8))).normalize();
+      root.rotation.y *= 0.8;
+      if (r.mode === 'excited') {                 // two big happy hops
+        root.position.y = Math.abs(Math.sin((r.t / 0.42) * Math.PI)) * 0.55;
+        root.rotation.z = Math.sin(r.t * 18) * 0.12;
+        if (r.t < dt * 1.5) burst(r.group.localToWorld(V(0, 1.9, 0)), 0xffffff, 3, 1.5, 0.55, 1.2, heartTex, false);
+        if (r.t > 0.84) { r.mode = 'approach'; r.t = 0; }
+      } else if (r.mode === 'approach') {         // waddle over to her
+        if (toGirl > 1.35 && r.t < 4) {
+          const nq = r.q.clone().multiply(tq.setFromAxisAngle(AX, (3.2 * dt) / R));
+          const od = AY.clone().applyQuaternion(r.q), nd = AY.clone().applyQuaternion(nq);
+          if (!blocked(od, nd, 0.3) && !world.standHeight(nd).wet) r.q.copy(nq).normalize();
+          root.position.y = Math.abs(Math.sin(t * 13 + r.phase)) * 0.2;
+          root.rotation.z = Math.sin(t * 13 + r.phase) * 0.14;
+        } else { r.mode = 'cuddle'; r.t = 0; }
+      } else {                                    // nuzzle and wiggle, hearts floating up
+        root.position.y = 0;
+        root.rotation.x = lerp(root.rotation.x, 0.28, 0.2);
+        root.rotation.z = Math.sin(r.t * 9) * 0.16;
+        root.scale.set(1 + Math.sin(r.t * 18) * 0.03, 1 - Math.sin(r.t * 18) * 0.04, 1);
+        r.heartT = (r.heartT || 0) - dt;
+        if (r.heartT <= 0) { r.heartT = 0.45; burst(r.group.localToWorld(V((Math.random() - 0.5) * 0.6, 1.8, 0.3)), 0xffffff, 1, 1.4, 0.5 + Math.random() * 0.3, 1.4, heartTex, false); }
+        if (r.t > 2.8 || toGirl > 4) {
+          r.mode = 'roam'; r.cool = 12; root.rotation.x = 0; root.scale.setScalar(1);
+          r.q.multiply(tq.setFromAxisAngle(AY, Math.PI * (0.7 + Math.random() * 0.6)));   // turn and wander off
+          r.turnT = 1.5; r.turnRate = 0; r.pause = 0;
+        }
+      }
+      placeRoamer(r);
+      continue;
+    }
+
     // roam: wander, pause, turn away from trees, water and her
     root.rotation.y *= 0.9;
     r.turnT -= dt;

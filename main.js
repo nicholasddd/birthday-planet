@@ -155,6 +155,7 @@ function makeBuried(i) {
   const color = new THREE.Color(PALETTE[i % PALETTE.length]);
   const holder = new THREE.Group();
   const ch = makeCabbageChicken(color); ch.root.position.y = SINK; holder.add(ch.root);
+  if (typeof showShells === 'function') showShells(ch.root);
   const mound = new THREE.Mesh(new THREE.TorusGeometry(0.66, 0.17, 10, 28), dirtM);
   mound.rotation.x = -Math.PI / 2; mound.scale.z = 0.55; mound.position.y = 0.02; mound.receiveShadow = true; holder.add(mound);
   const hole = new THREE.Mesh(new THREE.CircleGeometry(0.66, 28), holeM); hole.rotation.x = -Math.PI / 2; hole.position.y = 0.03; holder.add(hole);
@@ -179,6 +180,7 @@ function syncChickens() {
 // a freed chicken that wanders the planet
 function addRoamer(i, q, ch, popping) {
   const group = new THREE.Group(); group.add(ch.root); planetGroup.add(group);
+  if (typeof showShells === 'function') showShells(group);
   const r = { i, q: q.clone(), ch, group, mode: popping ? 'pop' : 'roam', t: 0, turnRate: 0, turnT: 0, pause: 0, phase: Math.random() * 6 };
   if (!popping) {
     ch.root.position.y = 0;
@@ -400,6 +402,9 @@ if (DEBUG) {
   document.body.appendChild(d);
   window.__phase = () => finale?.phase;   // for testing
   window.__roamers = () => roamers.map(r => r.mode);
+  window.__quality = () => quality.level;
+  window.__three = () => ({ renderer, scene, composer, camera, roamers, particles, smoke });
+  window.__dist = () => roamers.map(r => +girl.root.position.distanceTo(r.group.position).toFixed(2));
 }
 
 // ============================================================ input
@@ -631,13 +636,20 @@ function updateChickens(dt, t) {
         if (r.t < dt * 1.5) burst(r.group.localToWorld(V(0, 1.9, 0)), 0xffffff, 3, 1.5, 0.55, 1.2, heartTex, false);
         if (r.t > 0.84) { r.mode = 'approach'; r.t = 0; }
       } else if (r.mode === 'approach') {         // waddle over to her
-        if (toGirl > 1.35 && r.t < 4) {
-          const nq = r.q.clone().multiply(tq.setFromAxisAngle(AX, (3.2 * dt) / R));
-          const od = AY.clone().applyQuaternion(r.q), nd = AY.clone().applyQuaternion(nq);
-          if (!blocked(od, nd, 0.3) && !world.standHeight(nd).wet) r.q.copy(nq).normalize();
+        if (toGirl > 1.35 && r.t < 5) {
+          // head straight for her; squeeze past trees when close, otherwise side-step around them
+          const od = AY.clone().applyQuaternion(r.q);
+          for (const side of [0, 0.9, -0.9, 1.6, -1.6]) {
+            const nq = r.q.clone().multiply(tq.setFromAxisAngle(AY, side)).multiply(tq.setFromAxisAngle(AX, (3.2 * dt) / R));
+            const nd = AY.clone().applyQuaternion(nq);
+            if ((toGirl < 3 || !blocked(od, nd, 0.3)) && !world.standHeight(nd).wet) {
+              r.q.copy(nq).multiply(tq.setFromAxisAngle(AY, -side)).normalize();
+              break;
+            }
+          }
           root.position.y = Math.abs(Math.sin(t * 13 + r.phase)) * 0.2;
           root.rotation.z = Math.sin(t * 13 + r.phase) * 0.14;
-        } else { r.mode = 'cuddle'; r.t = 0; }
+        } else { r.mode = 'cuddle'; r.t = 0; r.cuddleD = toGirl; }
       } else {                                    // nuzzle and wiggle, hearts floating up
         root.position.y = 0;
         root.rotation.x = lerp(root.rotation.x, 0.28, 0.2);
@@ -645,7 +657,7 @@ function updateChickens(dt, t) {
         root.scale.set(1 + Math.sin(r.t * 18) * 0.03, 1 - Math.sin(r.t * 18) * 0.04, 1);
         r.heartT = (r.heartT || 0) - dt;
         if (r.heartT <= 0) { r.heartT = 0.45; burst(r.group.localToWorld(V((Math.random() - 0.5) * 0.6, 1.8, 0.3)), 0xffffff, 1, 1.4, 0.5 + Math.random() * 0.3, 1.4, heartTex, false); }
-        if (toGirl > 3.2 && r.t > 1.2) {     // keeps cuddling for as long as she stays close
+        if (toGirl > (r.cuddleD || 1.3) + 1.8 && r.t > 1.2) {     // keeps cuddling for as long as she stays close
           r.mode = 'roam'; root.rotation.x = 0; root.scale.setScalar(1);
           r.q.multiply(tq.setFromAxisAngle(AY, Math.PI * (0.7 + Math.random() * 0.6)));   // turn and wander off
           r.turnT = 1.5; r.turnRate = 0; r.pause = 0;
@@ -1058,10 +1070,47 @@ function updateFinale(dt, t) {
   if (shake > 0) camera.position.add(randDir(Math.random).multiplyScalar(shake * 0.35));
 }
 
+// ============================================================ adaptive quality
+// If the device struggles, quietly step down: resolution, then fuzz shells, then glow and shadows.
+const QUALITY = [
+  { pr: Math.min(devicePixelRatio, 2), shells: true, bloom: true, shadows: true },
+  { pr: Math.min(devicePixelRatio, 1.5), shells: true, bloom: true, shadows: true },
+  { pr: 1, shells: false, bloom: true, shadows: true },
+  { pr: 0.8, shells: false, bloom: false, shadows: true },
+  { pr: 0.65, shells: false, bloom: false, shadows: false },
+];
+const quality = { level: 0, frames: 0, time: 0, settle: 1.5 };
+const showShells = obj => obj.traverse(o => { if (o.userData.fuzzShell) o.visible = QUALITY[quality.level].shells; });
+function applyQuality() {
+  const L = QUALITY[quality.level];
+  renderer.setPixelRatio(L.pr); composer.setPixelRatio(L.pr); composer.setSize(innerWidth, innerHeight);
+  bloom.enabled = L.bloom;
+  sun.castShadow = L.shadows;
+  showShells(scene);
+}
+function watchQuality(realDt) {
+  if (quality.settle > 0) { quality.settle -= realDt; return; }
+  quality.frames++; quality.time += realDt;
+  if (quality.time >= 2) {
+    const fps = quality.frames / quality.time;
+    if (fps < 28 && quality.level < QUALITY.length - 1) { quality.level++; applyQuality(); quality.settle = 1; }
+    quality.frames = 0; quality.time = 0;
+  }
+}
+applyQuality();
+
 // ============================================================ loop
 const clock = new THREE.Clock();
+let simT = 0;
 function frame() {
-  const dt = Math.min(clock.getDelta(), 0.05), t = clock.elapsedTime;
+  const rawDt = clock.getDelta();
+  watchQuality(rawDt);
+  step(Math.min(rawDt, 0.05), clock.elapsedTime + simT);
+  requestAnimationFrame(frame);
+}
+// debug: advance the game by hand (works even while the tab is hidden)
+if (DEBUG) window.__tick = (n = 30, dt = 1 / 30) => { for (let i = 0; i < n; i++) { simT += dt; step(dt, clock.elapsedTime + simT); } };
+function step(dt, t) {
   if (state === 'finale') updateFinale(dt, t); else updatePlayer(dt, t);
   updateChickens(dt, t);
   updateParticles(dt);
@@ -1079,7 +1128,6 @@ function frame() {
   sky.material.uniforms.uUp.value.copy(camera.up);
   scene.fog.color.copy(sky.material.uniforms.uBottom.value);
   composer.render();
-  requestAnimationFrame(frame);
 }
 
 addEventListener('resize', () => {

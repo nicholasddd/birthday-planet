@@ -23,7 +23,7 @@ function fuzzy(parent, core, shell, [x, y, z], [sx, sy, sz], [rx = 0, ry = 0, rz
   const m = new THREE.Mesh(ball, core);
   m.position.set(x, y, z); m.scale.set(sx, sy, sz); m.rotation.set(rx, ry, rz);
   m.castShadow = true; m.receiveShadow = true;
-  if (shell) { const s = new THREE.Mesh(ball, shell); s.scale.setScalar(1.06); m.add(s); }
+  if (shell) { const s = new THREE.Mesh(ball, shell); s.scale.setScalar(1.06); s.userData.fuzzShell = true; m.add(s); }
   parent.add(m);
   return m;
 }

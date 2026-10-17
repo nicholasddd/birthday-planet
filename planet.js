@@ -170,6 +170,7 @@ export function makeElephantCloud(rng) {
   const g = new THREE.Group();
   const core = new THREE.Mesh(geo(1), cloudMat); core.castShadow = true;
   const shell = new THREE.Mesh(geo(1.07), cloudShellMat);
+  shell.userData.fuzzShell = true;
   g.add(core, shell);
   for (const sx of [-1, 1]) {
     const eye = new THREE.Mesh(new THREE.SphereGeometry(0.055, 8, 6), eyeMat);
@@ -395,14 +396,15 @@ export function buildPlanet(seed = 1) {
   };
   // fuzzy balls: smooth velvet core + two cut-out "fur" shells for a soft, hairy silhouette
   const fuzzMat = softify(velvet(), { scale: 0.55, strength: 0.85 });
-  const ballI = addInstanced(new THREE.SphereGeometry(1, 40, 28), fuzzMat, balls);
+  const ballI = addInstanced(new THREE.SphereGeometry(1, 24, 16), fuzzMat, balls);
   [[1.03, 0.52], [1.065, 0.6]].forEach(([r, cut]) => {
-    const shell = new THREE.InstancedMesh(new THREE.SphereGeometry(r, 40, 28), softify(velvet(), { scale: 0.55, strength: 0.85, shell: cut }), ballI.count);
+    const shell = new THREE.InstancedMesh(new THREE.SphereGeometry(r, 24, 16), softify(velvet(), { scale: 0.55, strength: 0.85, shell: cut }), ballI.count);
+    shell.userData.fuzzShell = true;
     shell.instanceMatrix = ballI.instanceMatrix; shell.instanceColor = ballI.instanceColor; shell.count = ballI.count;
     shell.receiveShadow = true; group.add(shell);
   });
   // leafy balls: bumpy surface with a finer leaf texture
-  let leafyG = new THREE.IcosahedronGeometry(1, 6); leafyG.deleteAttribute('normal'); leafyG.deleteAttribute('uv'); leafyG = mergeVertices(leafyG);
+  let leafyG = new THREE.IcosahedronGeometry(1, 4); leafyG.deleteAttribute('normal'); leafyG.deleteAttribute('uv'); leafyG = mergeVertices(leafyG);
   { const p = leafyG.attributes.position, v = new THREE.Vector3();
     for (let i = 0; i < p.count; i++) {
       v.fromBufferAttribute(p, i);

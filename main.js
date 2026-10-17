@@ -833,7 +833,7 @@ function burstPlanet() {
     const out = r.group.position.clone().normalize();
     flung.push({ g: r.group, vel: out.multiplyScalar(14 + Math.random() * 12).add(randDir(Math.random).multiplyScalar(5)), spin: randDir(Math.random).multiplyScalar(2 + Math.random() * 3), phase: Math.random() * 6 });
   }
-  cake.visible = true; cake.scale.setScalar(0.6);
+  cake.visible = false;   // revealed once the smoke clears
 }
 
 function updateFinale(dt, t) {
@@ -862,9 +862,10 @@ function updateFinale(dt, t) {
     }
     if (p >= 1) { next('smoke'); burstPlanet(); }
   } else if (f.phase === 'smoke') {               // ...and bursts; the cake appears as the smoke clears
-    const p = clamp(f.t / 4.2, 0, 1);
+    const p = clamp(f.t / 5, 0, 1);
     if (f.t > 0.35) { planetGroup.visible = false; planetGroup.position.set(0, 0, 0); }
-    cake.scale.setScalar(Math.max(0.001, lerp(0.6, 1, easeOutBack(clamp(f.t / 1.6, 0, 1)))));
+    if (f.t > 3.3 && !cake.visible) { cake.visible = true; chime(); burst(F(0, 2, 0), 0xffffff, 30, 12, 1.4, 1.2); }
+    cake.scale.setScalar(Math.max(0.001, lerp(0.7, 1, easeOutBack(clamp((f.t - 3.3) / 1.2, 0, 1)))));
     girl.root.position.copy(girlUp).lerp(girlFly, ease(p));
     girl.root.scale.setScalar(lerp(2.4, 3, ease(p)));
     if (p >= 1) { next('candles'); f.blow = 0; $('btnBlow').classList.remove('hidden'); }
@@ -948,7 +949,7 @@ function updateFinale(dt, t) {
     girl.root.position.copy(girlFly);
     bean.scale.setScalar(Math.max(0.001, 1 - e));
     boy.root.position.copy(F(0, 19, 0)).lerp(F(-12.8, 15, 6), e).add(F(0, Math.sin(p * Math.PI) * 4, 0));
-    girl.root.quaternion.copy(f.fq).multiply(tq.setFromAxisAngle(AY, 0.5 * e));
+    girl.root.quaternion.copy(f.fq).multiply(tq.setFromAxisAngle(AY, lerp(f.gy || 0, 0.5, e)));
     boy.root.quaternion.copy(f.fq).multiply(tq.setFromAxisAngle(AY, -0.5 * e));
     animateCharacter(boy, t, 0, 'fly');
     look = F(0, 7, 0).lerp(F(-15, 17, 6), e);
@@ -966,6 +967,13 @@ function updateFinale(dt, t) {
 
   // night falls once she leaves the ground
   if (f.phase !== 'lift' || f.t > 2.5) { const nk = 1 - Math.exp(-dt * 0.7); sky.material.uniforms.uTop.value.lerp(SKY.nightTop, nk); sky.material.uniforms.uBottom.value.lerp(SKY.nightBottom, nk); starsMat.opacity = Math.min(1, starsMat.opacity + dt * 0.25); }
+  // she turns to face the cake (the meet phase handles her turn toward him)
+  if (f.phase !== 'meet' && f.phase !== 'fly') {
+    const rel = cake.localToWorld(V(0, CAKE_TOP, 0)).sub(girl.root.position).applyQuaternion(f.fq.clone().invert());
+    const target = cake.visible ? Math.atan2(rel.x, rel.z) : 0;
+    f.gy = lerp(f.gy || 0, target, 1 - Math.exp(-dt * 3));
+    girl.root.quaternion.copy(f.fq).multiply(tq.setFromAxisAngle(AY, f.gy));
+  }
   animateCharacter(girl, t, 0, 'fly');
 
   // candles flicker, lean away when she blows, and go out

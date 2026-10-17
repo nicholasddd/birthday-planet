@@ -4,9 +4,9 @@ import { RenderPass } from 'three/addons/postprocessing/RenderPass.js';
 import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js';
 import { OutputPass } from 'three/addons/postprocessing/OutputPass.js';
 import { CONFIG } from './config.js';
+import { buildPlanet, R, mulberry32, randDir } from './planet.js';
 
 // ============================================================ utils
-const R = 20;              // planet radius
 const TOTAL = 24;
 const HOUR = 3600 * 1000;
 const V = (x = 0, y = 0, z = 0) => new THREE.Vector3(x, y, z);
@@ -16,19 +16,6 @@ const lerp = (a, b, t) => a + (b - a) * t;
 const ease = t => (t < 0.5 ? 4 * t * t * t : 1 - Math.pow(-2 * t + 2, 3) / 2);
 const easeOutBack = t => { const c1 = 1.70158, c3 = c1 + 1; return 1 + c3 * Math.pow(t - 1, 3) + c1 * Math.pow(t - 1, 2); };
 const $ = id => document.getElementById(id);
-
-function mulberry32(a) {
-  return function () {
-    a |= 0; a = (a + 0x6d2b79f5) | 0;
-    let t = Math.imul(a ^ (a >>> 15), 1 | a);
-    t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
-    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
-  };
-}
-function randDir(rng) {
-  const u = rng() * 2 - 1, th = rng() * Math.PI * 2, s = Math.sqrt(1 - u * u);
-  return V(s * Math.cos(th), u, s * Math.sin(th));
-}
 
 const store = {
   get(k) { try { return localStorage.getItem(k); } catch { return null; } },
@@ -61,29 +48,31 @@ renderer.toneMapping = THREE.ACESFilmicToneMapping;
 $('app').appendChild(renderer.domElement);
 
 const scene = new THREE.Scene();
-scene.background = new THREE.Color(0x2e2a6b);
+const DAY_SKY = new THREE.Color(0x9fdcff), NIGHT_SKY = new THREE.Color(0x2e2a6b);
+scene.background = DAY_SKY.clone();
 const camera = new THREE.PerspectiveCamera(55, innerWidth / innerHeight, 0.1, 1000);
 
 const composer = new EffectComposer(renderer);
 composer.addPass(new RenderPass(scene, camera));
-const bloom = new UnrealBloomPass(new THREE.Vector2(innerWidth, innerHeight), 0.9, 0.6, 0.82);
+const bloom = new UnrealBloomPass(new THREE.Vector2(innerWidth, innerHeight), 0.7, 0.5, 0.95);
 composer.addPass(bloom);
 composer.addPass(new OutputPass());
 
-scene.add(new THREE.HemisphereLight(0xfff1f8, 0x6a5acd, 1.3));
-const sun = new THREE.DirectionalLight(0xfff0dd, 2.2);
+scene.add(new THREE.HemisphereLight(0xe8f6ff, 0x7aa860, 1.15));
+const sun = new THREE.DirectionalLight(0xfff3e0, 1.8);
 sun.castShadow = true;
 sun.shadow.mapSize.set(2048, 2048);
 Object.assign(sun.shadow.camera, { left: -28, right: 28, top: 28, bottom: -28, near: 1, far: 140 });
 sun.shadow.bias = -0.0005;
 scene.add(sun, sun.target);
 
-// stars
+// stars (only shown when night falls in the finale)
+const starsMat = new THREE.PointsMaterial({ color: 0xfff6e0, size: 1.3, sizeAttenuation: true, transparent: true, opacity: 0 });
 {
   const g = new THREE.BufferGeometry(), pts = [], rng = mulberry32(7);
   for (let i = 0; i < 1500; i++) pts.push(...randDir(rng).multiplyScalar(250 + rng() * 100).toArray());
   g.setAttribute('position', new THREE.Float32BufferAttribute(pts, 3));
-  scene.add(new THREE.Points(g, new THREE.PointsMaterial({ color: 0xfff6e0, size: 1.3, sizeAttenuation: true })));
+  scene.add(new THREE.Points(g, starsMat));
 }
 
 // ============================================================ textures
@@ -131,125 +120,10 @@ function faceTexture(url, skin) {
 }
 
 // ============================================================ planet
-const planetGroup = new THREE.Group();
+const world = buildPlanet(CONFIG.seed || 1);
+const planetGroup = world.group;
 scene.add(planetGroup);
-{
-  const g = new THREE.SphereGeometry(R, 128, 96);
-  const pos = g.attributes.position, cols = [], c = new THREE.Color();
-  const g1 = new THREE.Color(0x9be08f), g2 = new THREE.Color(0x74c977), g3 = new THREE.Color(0xd4f5a0);
-  for (let i = 0; i < pos.count; i++) {
-    const x = pos.getX(i) / R, y = pos.getY(i) / R, z = pos.getZ(i) / R;
-    const n = Math.sin(x * 7 + y * 3) * Math.cos(z * 6 - x * 2) + 0.5 * Math.sin(y * 13 + z * 9);
-    c.copy(g2).lerp(g1, clamp(n * 0.5 + 0.5, 0, 1));
-    if (n > 0.9) c.lerp(g3, 0.6);
-    cols.push(c.r, c.g, c.b);
-  }
-  g.setAttribute('color', new THREE.Float32BufferAttribute(cols, 3));
-  const planet = new THREE.Mesh(g, new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 1 }));
-  planet.receiveShadow = true;
-  planetGroup.add(planet);
-}
-
-function placeOnSurface(obj, dir, h = 0, spin = 0) {
-  obj.position.copy(dir).multiplyScalar(R + h);
-  obj.quaternion.setFromUnitVectors(AY, dir);
-  obj.rotateY(spin);
-}
-const shadowAll = o => o.traverse(m => { if (m.isMesh) { m.castShadow = true; m.receiveShadow = true; } });
-
-// flower spots (deterministic so a reload never moves them)
-const flowerDirs = [];
-{
-  const rng = mulberry32(CONFIG.seed || 1);
-  while (flowerDirs.length < TOTAL) {
-    const d = randDir(rng);
-    if (d.angleTo(AY) < 0.35) continue;
-    if (flowerDirs.some(o => o.angleTo(d) < 0.3)) continue;
-    flowerDirs.push(d);
-  }
-}
-
-// decorations
-const obstacles = []; // {dir, rad}
-{
-  const rng = mulberry32(42);
-  const freeSpot = (minA) => {
-    for (let k = 0; k < 50; k++) {
-      const d = randDir(rng);
-      if (d.angleTo(AY) < 0.18) continue;
-      if (flowerDirs.some(f => f.angleTo(d) < minA)) continue;
-      if (obstacles.some(o => o.dir.angleTo(d) * R < o.rad + 1.2)) continue;
-      return d;
-    }
-    return null;
-  };
-  const M = c => new THREE.MeshStandardMaterial({ color: c, roughness: 0.8, flatShading: true });
-  const trunkM = M(0x9b6b4a);
-  const leafMs = [0x5fbf6a, 0x7ad37a, 0xffb7d5, 0xffc8e0, 0x9fe39a].map(M);
-  const trunkG = new THREE.CylinderGeometry(0.2, 0.3, 1.4, 6);
-  const blobG = new THREE.IcosahedronGeometry(1, 0);
-
-  for (let i = 0; i < 45; i++) {
-    const d = freeSpot(0.14); if (!d) continue;
-    const s = 0.8 + rng() * 0.8, tree = new THREE.Group();
-    const trunk = new THREE.Mesh(trunkG, trunkM); trunk.position.y = 0.7; tree.add(trunk);
-    const lm = leafMs[Math.floor(rng() * leafMs.length)];
-    for (let k = 0; k < 3; k++) {
-      const b = new THREE.Mesh(blobG, lm);
-      b.position.set((rng() - 0.5) * 0.8, 1.9 + k * 0.45, (rng() - 0.5) * 0.8);
-      b.scale.setScalar(0.9 - k * 0.15);
-      tree.add(b);
-    }
-    tree.scale.setScalar(s); shadowAll(tree);
-    placeOnSurface(tree, d, 0, rng() * 6);
-    planetGroup.add(tree);
-    obstacles.push({ dir: d, rad: 0.7 * s });
-  }
-  const rockG = new THREE.DodecahedronGeometry(0.6, 0), rockM = M(0xb9b3d6);
-  for (let i = 0; i < 25; i++) {
-    const d = freeSpot(0.1); if (!d) continue;
-    const rock = new THREE.Mesh(rockG, rockM), s = 0.5 + rng();
-    rock.scale.set(s, s * 0.7, s); shadowAll(rock);
-    placeOnSurface(rock, d, 0.1, rng() * 6); planetGroup.add(rock);
-    obstacles.push({ dir: d, rad: 0.5 * s });
-  }
-  // mushrooms
-  const capM = M(0xff6b6b), stalkM = M(0xfff3e0);
-  for (let i = 0; i < 18; i++) {
-    const d = freeSpot(0.08); if (!d) continue;
-    const m = new THREE.Group();
-    const st = new THREE.Mesh(new THREE.CylinderGeometry(0.1, 0.13, 0.4, 6), stalkM); st.position.y = 0.2;
-    const cap = new THREE.Mesh(new THREE.SphereGeometry(0.28, 8, 6, 0, Math.PI * 2, 0, Math.PI / 2), capM); cap.position.y = 0.38;
-    m.add(st, cap); shadowAll(m); placeOnSurface(m, d); planetGroup.add(m);
-  }
-  // tiny meadow flowers
-  const count = 260;
-  const inst = new THREE.InstancedMesh(new THREE.SphereGeometry(0.12, 6, 4), new THREE.MeshStandardMaterial({ roughness: 0.6 }), count);
-  const o = new THREE.Object3D(), cols = [0xffffff, 0xfff176, 0xff9de2, 0xb39ddb, 0xffb74d];
-  for (let i = 0; i < count; i++) {
-    placeOnSurface(o, randDir(rng), 0.1); o.updateMatrix();
-    inst.setMatrixAt(i, o.matrix); inst.setColorAt(i, new THREE.Color(cols[i % cols.length]));
-  }
-  planetGroup.add(inst);
-}
-
-// clouds
-const cloudPivot = new THREE.Group();
-planetGroup.add(cloudPivot);
-{
-  const rng = mulberry32(99), m = new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 1, flatShading: true });
-  const g = new THREE.IcosahedronGeometry(1, 1);
-  for (let i = 0; i < 10; i++) {
-    const cl = new THREE.Group();
-    for (let k = 0; k < 4; k++) {
-      const b = new THREE.Mesh(g, m);
-      b.position.set((k - 1.5) * 1.1, rng() * 0.4, (rng() - 0.5) * 0.6);
-      b.scale.setScalar(0.8 + rng() * 0.6); cl.add(b);
-    }
-    placeOnSurface(cl, randDir(rng), 9 + rng() * 3, rng() * 6);
-    cloudPivot.add(cl);
-  }
-}
+const { flowerDirs, obstacles, cloudPivot, placeOnSurface, shadowAll } = world;
 
 // ============================================================ characters
 function makeCharacter(o, faceUrl, isGirl) {
@@ -334,13 +208,13 @@ function makeFlower(i) {
   const stem = new THREE.Mesh(new THREE.CylinderGeometry(0.05, 0.07, 1.1, 6), stemM); stem.position.y = 0.55; g.add(stem);
   const leaf = new THREE.Mesh(new THREE.SphereGeometry(0.2, 8, 6), stemM); leaf.scale.set(1, 0.2, 0.5); leaf.position.set(0.17, 0.4, 0); leaf.rotation.z = 0.5; g.add(leaf);
   const head = new THREE.Group(); head.position.y = 1.2; g.add(head);
-  const petalM = new THREE.MeshStandardMaterial({ color, emissive: color, emissiveIntensity: 1.8 });
+  const petalM = new THREE.MeshStandardMaterial({ color, emissive: color, emissiveIntensity: 3.2 });
   const petalG = new THREE.SphereGeometry(0.25, 12, 8);
   for (let k = 0; k < 7; k++) {
     const a = (k / 7) * Math.PI * 2, pt = new THREE.Mesh(petalG, petalM);
     pt.scale.set(0.55, 0.18, 1); pt.position.set(Math.sin(a) * 0.28, 0, Math.cos(a) * 0.28); pt.rotation.y = a; head.add(pt);
   }
-  head.add(new THREE.Mesh(new THREE.SphereGeometry(0.15, 10, 8), new THREE.MeshStandardMaterial({ color: 0xffe066, emissive: 0xffd000, emissiveIntensity: 2 })));
+  head.add(new THREE.Mesh(new THREE.SphereGeometry(0.15, 10, 8), new THREE.MeshStandardMaterial({ color: 0xffe066, emissive: 0xffd000, emissiveIntensity: 3.5 })));
   const halo = new THREE.Sprite(new THREE.SpriteMaterial({ map: glowTex, color, blending: THREE.AdditiveBlending, depthWrite: false, transparent: true }));
   halo.scale.setScalar(3.2); halo.position.y = 1.2; g.add(halo);
   const beam = new THREE.Mesh(new THREE.CylinderGeometry(0.35, 0.35, 40, 16, 1, true),
@@ -436,8 +310,10 @@ function updateTimeUI() {
   st.classList.toggle('ready', waiting > 0);
   if (state === 'finale') st.classList.add('hidden');
   else if (collected.size === TOTAL) {
-    st.innerHTML = '💖 All 24 flowers found! <button id="btnFinale">Begin the finale ✨</button>';
-    $('btnFinale').onclick = startFinale;
+    if (!$('btnFinale')) {
+      st.innerHTML = '💖 All 24 flowers found! <button id="btnFinale">Begin the finale ✨</button>';
+      $('btnFinale').onclick = startFinale;
+    }
   } else if (u === 0) st.textContent = `🌙 The first flower blooms in ${fmtDur(startMs - now())}`;
   else {
     const next = u < TOTAL ? ` · next in ${fmtDur(unlockTime(u) - now())}` : '';
@@ -535,6 +411,7 @@ if (DEBUG) {
   add('+1 hour', () => setOff(timeOffset + HOUR));
   add('Unlock all', () => setOff(startMs + TOTAL * HOUR - Date.now()));
   add('Collect all → finale', () => { for (let i = 0; i < TOTAL; i++) collected.add(i); saveProgress(); for (const f of flowerObjs.values()) planetGroup.remove(f); flowerObjs.clear(); updateTimeUI(); startFinale(); });
+  add('Planet view on/off', () => { overview = !overview; });
   add('Reset everything', () => { store.set('bday-collected', '[]'); store.set('bday-offset', '0'); location.reload(); });
   document.body.appendChild(d);
 }
@@ -565,7 +442,7 @@ const pq = new THREE.Quaternion();   // her orientation on the planet
 const tq = new THREE.Quaternion();
 const camLook = V(0, R, 0);
 camera.position.set(0, R + 7, -11);
-let walkAmt = 0;
+let walkAmt = 0, wet = false, girlH = 0, overview = false;
 
 function blocked(oldDir, newDir) {
   for (const o of obstacles) {
@@ -585,20 +462,24 @@ function updatePlayer(dt, t) {
   }
   if (turn) pq.multiply(tq.setFromAxisAngle(AY, turn * 2.6 * dt));
   if (fwd) {
-    const nq = pq.clone().multiply(tq.setFromAxisAngle(AX, (fwd * 7 * dt) / R));
+    const nq = pq.clone().multiply(tq.setFromAxisAngle(AX, (fwd * (wet ? 4 : 7) * dt) / R));
     const od = AY.clone().applyQuaternion(pq), nd = AY.clone().applyQuaternion(nq);
     if (!blocked(od, nd)) pq.copy(nq);
   }
   pq.normalize();
-  girl.root.position.copy(AY).applyQuaternion(pq).multiplyScalar(R);
+  const here = AY.clone().applyQuaternion(pq), stand = world.standHeight(here);
+  wet = stand.wet;
+  girlH = lerp(girlH, stand.h, 1 - Math.exp(-dt * 12));
+  girl.root.position.copy(here).multiplyScalar(R + girlH);
+  if (wet && Math.abs(fwd) > 0.1 && Math.random() < 0.25) burst(here.clone().multiplyScalar(R - 0.1), 0xffffff, 2, 2.5, 0.35, 0.5);
   girl.root.quaternion.copy(pq);
   walkAmt = lerp(walkAmt, Math.abs(fwd) > 0.05 ? 1 : 0, 0.15);
   animateCharacter(girl, t, walkAmt);
 
   // camera follows behind & above
   const k = 1 - Math.exp(-dt * 4);
-  camera.position.lerp(V(0, R + 7, -11).applyQuaternion(pq), k);
-  camLook.lerp(V(0, R + 1.5, 4).applyQuaternion(pq), k);
+  camera.position.lerp((overview ? V(0, R * 2.4, -R * 1.6) : V(0, R + 7, -11)).applyQuaternion(pq), k);
+  camLook.lerp(overview ? V() : V(0, R + 1.5, 4).applyQuaternion(pq), k);
   camera.up.lerp(AY.clone().applyQuaternion(pq), k).normalize();
   camera.lookAt(camLook);
 
@@ -778,6 +659,7 @@ function updateFinale(dt, t) {
     look = F(-13, 16, 6).lerp(F(-13, 40, -10), e);
     if (p > 0.55 && !f.ended) { f.ended = true; openOverlay('ending'); }
   }
+  if (f.phase !== 'float' || f.t > 1.5) { scene.background.lerp(NIGHT_SKY, 1 - Math.exp(-dt * 0.8)); starsMat.opacity = Math.min(1, starsMat.opacity + dt * 0.3); }
   animateCharacter(girl, t, 0, 'fly');
   for (const fl of flames) fl.scale.y = 1.6 + Math.sin(t * 20 + fl.position.x) * 0.25;
 

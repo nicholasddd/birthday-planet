@@ -127,47 +127,56 @@ export function softify(mat, { scale = 0.35, strength = 0.7, flowers = 0, shell 
   return mat;
 }
 
-// fluffy elephant-shaped cloud textures (one facing right, one facing left)
-function elephantCloud(flip) {
-  return canvasTexture(512, (x, n) => {
-    const r = mulberry32(flip ? 21 : 11), k = n / 256, puffs = [];
-    const blob = (cx, cy, rx, ry, count, pr) => {        // fill an ellipse with puffs
-      for (let i = 0; i < count; i++) {
-        const a = r() * Math.PI * 2, d = Math.sqrt(r());
-        puffs.push([cx + Math.cos(a) * rx * d, cy + Math.sin(a) * ry * d, pr * (0.7 + r() * 0.6)]);
-      }
-    };
-    const line = (pts, r0, r1, count) => {                  // puffs along a curve (trunk, tail)
-      for (let i = 0; i <= count; i++) {
-        const t = i / count, seg = t * (pts.length - 1), j = Math.min(Math.floor(seg), pts.length - 2), f = seg - j;
-        puffs.push([pts[j][0] + (pts[j + 1][0] - pts[j][0]) * f, pts[j][1] + (pts[j + 1][1] - pts[j][1]) * f, r0 + (r1 - r0) * t]);
-      }
-    };
-    blob(115, 138, 58, 38, 70, 20);                          // body
-    blob(115, 112, 40, 16, 20, 18);                          // rounded back
-    blob(182, 112, 28, 28, 34, 17);                          // head
-    blob(166, 120, 20, 26, 22, 14);                          // big floppy ear
-    line([[203, 118], [216, 140], [222, 165], [216, 184], [204, 188], [199, 178]], 12, 6, 26); // curled trunk
-    for (const lx of [76, 100, 134, 158]) line([[lx, 160], [lx, 200]], 14, 13, 6);           // legs
-    line([[58, 130], [48, 145], [46, 158]], 5, 3.5, 8);      // tail
-    // soft blue-grey underside first, then the white fluff on top
-    const draw = (dx, dy, col, alpha) => {
-      for (const [px0, py0, pr] of puffs) {
-        const px = (flip ? 256 - px0 : px0) * k + dx, py = py0 * k + dy, rad = pr * k;
-        const g = x.createRadialGradient(px, py, 0, px, py, rad);
-        g.addColorStop(0, `rgba(${col},${alpha})`); g.addColorStop(0.55, `rgba(${col},${alpha * 0.85})`); g.addColorStop(1, `rgba(${col},0)`);
-        x.fillStyle = g; x.beginPath(); x.arc(px, py, rad, 0, Math.PI * 2); x.fill();
-      }
-    };
-    draw(0, 6 * k, '176,200,232', 0.5);
-    draw(0, 0, '255,255,255', 0.9);
-    // a tiny sleepy eye
-    x.fillStyle = 'rgba(150,170,205,0.55)';
-    x.beginPath(); x.ellipse((flip ? 256 - 190 : 190) * k, 106 * k, 2.5 * k, 1.6 * k, 0, 0, Math.PI * 2); x.fill();
-  }, true);
+// 3D fluffy elephant clouds, built from lots of soft white puffs
+const cloudMat = softify(new THREE.MeshPhysicalMaterial({
+  color: 0xffffff, roughness: 1, sheen: 1, sheenRoughness: 0.5, sheenColor: new THREE.Color(0xffffff),
+  emissive: 0xeef4ff, emissiveIntensity: 0.42, fog: false,
+}), { scale: 1.4, strength: 0.25 });
+const cloudShellMat = softify(new THREE.MeshPhysicalMaterial({
+  color: 0xffffff, roughness: 1, sheen: 1, sheenColor: new THREE.Color(0xffffff),
+  emissive: 0xeef4ff, emissiveIntensity: 0.45, fog: false,
+}), { scale: 1.4, strength: 0.25, shell: 0.55 });
+const eyeMat = new THREE.MeshStandardMaterial({ color: 0x8aa0c8, roughness: 0.6, fog: false });
+
+function elephantPuffs(rng) {
+  // local space: +Z = forward (trunk), +Y = up
+  const P = [];
+  const ellipsoid = (cx, cy, cz, rx, ry, rz, count, pr) => {
+    for (let i = 0; i < count; i++) {
+      const u = rng() * 2 - 1, th = rng() * Math.PI * 2, q = Math.sqrt(1 - u * u), d = 0.55 + rng() * 0.4;
+      P.push([cx + q * Math.cos(th) * rx * d, cy + u * ry * d, cz + q * Math.sin(th) * rz * d, pr * (0.75 + rng() * 0.5)]);
+    }
+  };
+  const chain = (pts, r0, r1, count) => {
+    for (let i = 0; i <= count; i++) {
+      const t = i / count, seg = t * (pts.length - 1), j = Math.min(Math.floor(seg), pts.length - 2), f = seg - j;
+      const p = pts[j].map((v, k) => v + (pts[j + 1][k] - v) * f);
+      P.push([...p, r0 + (r1 - r0) * t]);
+    }
+  };
+  ellipsoid(0, 0, 0, 0.85, 0.72, 1.15, 26, 0.55);                    // body
+  ellipsoid(0, 0.35, 1.3, 0.5, 0.5, 0.5, 10, 0.36);                  // head
+  for (const sx of [-1, 1]) {
+    ellipsoid(sx * 0.62, 0.32, 1.1, 0.12, 0.42, 0.34, 8, 0.27);      // big floppy ears
+    for (const sz of [-1, 1]) chain([[sx * 0.45, -0.55, sz * 0.6], [sx * 0.47, -1.2, sz * 0.62]], 0.29, 0.26, 3); // legs
+  }
+  chain([[0, 0.1, 1.75], [0, -0.35, 2.05], [0, -0.75, 2.12], [0, -0.85, 2.38], [0, -0.62, 2.5]], 0.22, 0.12, 10); // curled trunk
+  chain([[0, 0.15, -1.2], [0, -0.15, -1.42], [0, -0.38, -1.48]], 0.09, 0.07, 4);                                 // tail
+  return P;
 }
-const elephantTex = [elephantCloud(false), elephantCloud(true)];
-for (const t of elephantTex) t.wrapS = t.wrapT = THREE.ClampToEdgeWrapping;
+export function makeElephantCloud(rng) {
+  const puffs = elephantPuffs(rng);
+  const geo = (grow) => mergeGeometries(puffs.map(([x, y, z, r]) => new THREE.SphereGeometry(r * grow, 16, 12).translate(x, y, z)));
+  const g = new THREE.Group();
+  const core = new THREE.Mesh(geo(1), cloudMat); core.castShadow = true;
+  const shell = new THREE.Mesh(geo(1.07), cloudShellMat);
+  g.add(core, shell);
+  for (const sx of [-1, 1]) {
+    const eye = new THREE.Mesh(new THREE.SphereGeometry(0.055, 8, 6), eyeMat);
+    eye.position.set(sx * 0.26, 0.55, 1.72); g.add(eye);
+  }
+  return g;
+}
 
 // velvety material: sheen gives the soft, furry rim-light of fuzzy topiary
 const velvet = (opts = {}) => new THREE.MeshPhysicalMaterial({ roughness: 1, sheen: 1, sheenRoughness: 0.55, sheenColor: new THREE.Color(0xdcffb8), ...opts });
@@ -482,11 +491,24 @@ export function buildPlanet(seed = 1) {
 
   // ---------------------------------------------------------------- clouds
   const cloudPivot = new THREE.Group(); group.add(cloudPivot);
-  for (let i = 0; i < 14; i++) {
-    const sp = new THREE.Sprite(new THREE.SpriteMaterial({ map: elephantTex[i % 2], transparent: true, depthWrite: false, opacity: 0.95, fog: false }));
-    const w = [4, 6, 8, 11, 14][i % 5] * (0.85 + rng() * 0.3); sp.scale.set(w, w, 1);   // baby to big elephants
-    sp.position.copy(randDir(rng)).multiplyScalar(R + 8 + rng() * 5);
-    cloudPivot.add(sp);
+  const cloudDirs = [];
+  const sizes = [1.1, 1.5, 1.9, 2.3, 2.8, 3.4];
+  for (let i = 0, tries = 0; i < 12 && tries < 500; tries++) {
+    const d = randDir(rng);
+    if (cloudDirs.some(o => o.angleTo(d) < 0.55)) continue;
+    cloudDirs.push(d);
+    const el = makeElephantCloud(rng), size = sizes[i % sizes.length] * (0.9 + rng() * 0.2);
+    el.scale.setScalar(size);
+    // stand "upright" over the planet and face along the orbit so they parade around it
+    const up = d.clone(), fwd = new THREE.Vector3(0, 1, 0).cross(up);
+    if (fwd.lengthSq() < 1e-4) fwd.set(1, 0, 0);
+    fwd.normalize(); if (rng() < 0.15) fwd.negate();
+    const right = new THREE.Vector3().crossVectors(up, fwd);
+    el.quaternion.setFromRotationMatrix(new THREE.Matrix4().makeBasis(right, up, fwd));
+    el.position.copy(up).multiplyScalar(R + 8 + size * 1.6 + rng() * 3);
+    el.userData.bob = rng() * 6;
+    cloudPivot.add(el);
+    i++;
   }
 
   return { group, flowerDirs, obstacles, cloudPivot, placeOnSurface, standHeight, shadowAll };

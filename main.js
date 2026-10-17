@@ -693,6 +693,10 @@ function frame() {
   updateFlowersAnim(dt, t);
   updateParticles(dt);
   cloudPivot.rotation.y += dt * 0.02;
+  for (const c of cloudPivot.children) {   // elephants gently bob up and down
+    c.userData.base ??= c.position.clone();
+    c.position.copy(c.userData.base).multiplyScalar(1 + 0.012 * Math.sin(t * 0.8 + (c.userData.bob || 0)));
+  }
   // keep the sun roughly behind the camera so the visible side is always lit
   const camDir = camera.position.clone().normalize();
   const side = V().crossVectors(camDir, camera.up).normalize();

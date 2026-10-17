@@ -321,18 +321,30 @@ function closeOverlay(id) {
   modalOpen = ['intro', 'offer', 'letter', 'catalogue', 'ending'].some(k => $(k).classList.contains('open'));
 }
 
+// the flower this chouchou carried, drawn beside the letter
+function flowerSVG(hex) {
+  const petals = Array.from({ length: 6 }, (_, k) =>
+    `<ellipse cx="62" cy="52" rx="13" ry="25" transform="rotate(${k * 60} 62 78)" fill="${hex}" stroke="rgba(0,0,0,.12)" stroke-width="1"/>`).join('');
+  return `<path d="M58 298 C52 230 70 170 62 84" stroke="#5f9a46" stroke-width="5" fill="none" stroke-linecap="round"/>
+    <path d="M60 220 C38 206 26 214 18 226 C34 232 48 230 60 220Z" fill="#78b25a"/>
+    <path d="M63 170 C84 156 98 162 104 174 C90 180 76 178 63 170Z" fill="#6aa64f"/>
+    ${petals}<circle cx="62" cy="78" r="12" fill="#ffd54a"/><circle cx="58" cy="74" r="4" fill="#ffe89a"/>`;
+}
 function openLetter(i) {
   const L = CONFIG.letters[i] || {};
   $('letterHour').textContent = `chouchou ${i + 1} of ${TOTAL}`;
-  $('letterTitle').textContent = L.title || `Hour ${i + 1}`;
-  const img = $('letterImg'), txt = $('letterText');
-  img.classList.add('hidden'); txt.classList.add('hidden');
-  txt.textContent = L.text || '';
+  $('mono').textContent = $('sealMono').textContent = CONFIG.monogram || '♥';
+  $('letterGreet').textContent = `My dearest ${CONFIG.herName},`;
+  $('letterFrom').textContent = CONFIG.fromName || '';
+  $('letterText').textContent = L.text || '';
+  $('letterFlower').innerHTML = flowerSVG('#' + new THREE.Color(PALETTE[i % PALETTE.length]).getHexString());
+  const img = $('letterImg'), body = $('letterBody');
+  img.classList.add('hidden'); body.classList.add('hidden');
   if (L.image) {
     img.onload = () => img.classList.remove('hidden');
-    img.onerror = () => txt.classList.remove('hidden');
+    img.onerror = () => body.classList.remove('hidden');
     img.src = L.image;
-  } else txt.classList.remove('hidden');
+  } else body.classList.remove('hidden');
   openOverlay('letter');
 }
 
@@ -360,6 +372,7 @@ $('btnCloseLetter').onclick = () => {
   closeOverlay('letter');
   if (pendingFinale.v) { pendingFinale.v = false; toast('💫 Something magical is happening…'); setTimeout(startFinale, 1500); }
 };
+$('letter').addEventListener('click', e => { if (e.target.id === 'letter') $('btnCloseLetter').click(); });
 $('btnEndCat').onclick = () => { closeOverlay('ending'); renderCatalogue(); openOverlay('catalogue'); };
 $('btnReplay').onclick = () => location.reload();
 $('introTitle').textContent = `Happy Birthday, ${CONFIG.herName}`;
@@ -489,8 +502,13 @@ function updatePlayer(dt, t) {
 
   // camera follows behind & above, always looking the same way
   const k = 1 - Math.exp(-dt * 4);
-  camera.position.lerp((overview ? V(0, R * 2.4, -R * 1.6) : V(0, R + 7, -11)).applyQuaternion(pq), k);
-  camLook.lerp(overview ? V() : V(0, R + 1.5, 4).applyQuaternion(pq), k);
+  if ($('letter').classList.contains('open')) {   // reading: drift in close to her (and her chouchou)
+    camera.position.lerp(girl.root.localToWorld(V(1.4, 2.3, 4.6)), k * 0.6);
+    camLook.lerp(girl.root.localToWorld(V(0, 1.4, 0)), k * 0.6);
+  } else {
+    camera.position.lerp((overview ? V(0, R * 2.4, -R * 1.6) : V(0, R + 7, -11)).applyQuaternion(pq), k);
+    camLook.lerp(overview ? V() : V(0, R + 1.5, 4).applyQuaternion(pq), k);
+  }
   camera.up.lerp(AY.clone().applyQuaternion(pq), k).normalize();
   camera.lookAt(camLook);
 }

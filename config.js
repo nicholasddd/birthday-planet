@@ -6,6 +6,10 @@ export const CONFIG = {
   // Her name, shown on the intro + ending screens
   herName: 'My Love',
 
+  // How each letter is signed, and the little crest at the top of the paper / on the wax seal
+  fromName: 'Your boy',
+  monogram: '♥',
+
   // When flower #1 appears (local time of the device she opens it on).
   // Flower #N appears N-1 hours after this. 24 flowers -> 24 hours.
   startTime: '2026-10-18T00:00:00',
@@ -22,6 +26,6 @@ export const CONFIG = {
   letters: Array.from({ length: 24 }, (_, i) => ({
     title: `Hour ${i + 1}`,
     image: `assets/letters/letter-${String(i + 1).padStart(2, '0')}.jpg`,
-    text: `This is placeholder letter #${i + 1}.\n\nReplace it by dropping a photo of your handwritten letter at\nassets/letters/letter-${String(i + 1).padStart(2, '0')}.jpg`,
+    text: `This is placeholder letter number ${i + 1}. Every chouchou carries one, and this is where my words for you will go.\n\nTo use a scan of a handwritten letter instead, save it as assets/letters/letter-${String(i + 1).padStart(2, '0')}.jpg`,
   })),
 };

@@ -6,6 +6,7 @@ import { OutputPass } from 'three/addons/postprocessing/OutputPass.js';
 import { CONFIG } from './config.js';
 import { buildPlanet, R, mulberry32, randDir } from './planet.js';
 import { makeChibi, animateCharacter } from './characters.js';
+import { makeCabbageChicken } from './chickens.js';
 
 // ============================================================ utils
 const TOTAL = 24;
@@ -124,52 +125,64 @@ const boy = makeChibi(CONFIG.boy, false);
 boy.root.visible = false;
 scene.add(boy.root);
 
-// arrow above her head pointing at the nearest flower
+// arrow above her head pointing at the nearest stuck chicken
 const arrowPivot = new THREE.Group(); arrowPivot.position.y = 3.1; girl.root.add(arrowPivot);
 {
   const g = new THREE.ConeGeometry(0.22, 0.6, 12); g.rotateX(Math.PI / 2); g.translate(0, 0, 0.9);
   arrowPivot.add(new THREE.Mesh(g, new THREE.MeshStandardMaterial({ color: 0xffe066, emissive: 0xffc400, emissiveIntensity: 1.5 })));
 }
 
-// ============================================================ glowing flowers
+// ============================================================ cabbage chickens
+// Each hour a cabbage chicken gets stuck in the ground (glowing so it's easy to find).
+// She spams SPACE to pull it out; it hands over the letter in its beak, keeps its flower,
+// and then waddles around the planet freely.
 const PALETTE = [0xff6fa8, 0xffb347, 0xb084ff, 0x6fd3ff, 0xff8a80, 0xfff176, 0x81f5c1, 0xff9de2];
 const EMOJI = ['🌸', '🌼', '🌺', '🌷', '🪻', '🌻', '💮', '🏵️'];
-const flowerObjs = new Map();
-const stemM = new THREE.MeshStandardMaterial({ color: 0x4caf50 });
-function makeFlower(i) {
+const buried = new Map();   // i -> holder group (still stuck)
+const roamers = [];         // freed chickens
+const dirtM = new THREE.MeshStandardMaterial({ color: 0x8a5f3f, roughness: 1 });
+const holeM = new THREE.MeshStandardMaterial({ color: 0x4e3424, roughness: 1 });
+const SINK = -0.95;
+
+function makeBuried(i) {
   const color = new THREE.Color(PALETTE[i % PALETTE.length]);
-  const g = new THREE.Group();
-  const stem = new THREE.Mesh(new THREE.CylinderGeometry(0.05, 0.07, 1.1, 6), stemM); stem.position.y = 0.55; g.add(stem);
-  const leaf = new THREE.Mesh(new THREE.SphereGeometry(0.2, 8, 6), stemM); leaf.scale.set(1, 0.2, 0.5); leaf.position.set(0.17, 0.4, 0); leaf.rotation.z = 0.5; g.add(leaf);
-  const head = new THREE.Group(); head.position.y = 1.2; g.add(head);
-  const petalM = new THREE.MeshStandardMaterial({ color, emissive: color, emissiveIntensity: 3.2 });
-  const petalG = new THREE.SphereGeometry(0.25, 12, 8);
-  for (let k = 0; k < 7; k++) {
-    const a = (k / 7) * Math.PI * 2, pt = new THREE.Mesh(petalG, petalM);
-    pt.scale.set(0.55, 0.18, 1); pt.position.set(Math.sin(a) * 0.28, 0, Math.cos(a) * 0.28); pt.rotation.y = a; head.add(pt);
-  }
-  head.add(new THREE.Mesh(new THREE.SphereGeometry(0.15, 10, 8), new THREE.MeshStandardMaterial({ color: 0xffe066, emissive: 0xffd000, emissiveIntensity: 3.5 })));
+  const holder = new THREE.Group();
+  const ch = makeCabbageChicken(color); ch.root.position.y = SINK; holder.add(ch.root);
+  const mound = new THREE.Mesh(new THREE.TorusGeometry(0.66, 0.17, 10, 28), dirtM);
+  mound.rotation.x = -Math.PI / 2; mound.scale.z = 0.55; mound.position.y = 0.02; mound.receiveShadow = true; holder.add(mound);
+  const hole = new THREE.Mesh(new THREE.CircleGeometry(0.66, 28), holeM); hole.rotation.x = -Math.PI / 2; hole.position.y = 0.03; holder.add(hole);
   const halo = new THREE.Sprite(new THREE.SpriteMaterial({ map: glowTex, color, blending: THREE.AdditiveBlending, depthWrite: false, transparent: true }));
-  halo.scale.setScalar(3.2); halo.position.y = 1.2; g.add(halo);
+  halo.scale.setScalar(3.2); halo.position.y = 0.7; holder.add(halo);
   const beam = new THREE.Mesh(new THREE.CylinderGeometry(0.35, 0.35, 40, 16, 1, true),
     new THREE.MeshBasicMaterial({ map: beamTex, color, transparent: true, blending: THREE.AdditiveBlending, depthWrite: false, side: THREE.DoubleSide, opacity: 0.6 }));
-  beam.position.y = 20.5; g.add(beam);
-  const ring = new THREE.Mesh(new THREE.RingGeometry(0.8, 1.0, 40), new THREE.MeshBasicMaterial({ color, transparent: true, blending: THREE.AdditiveBlending, depthWrite: false }));
-  ring.rotation.x = -Math.PI / 2; ring.position.y = 0.05; g.add(ring);
-  g.userData = { i, head, halo, ring, beam, spawn: 0 };
-  placeOnSurface(g, flowerDirs[i]);
-  return g;
+  beam.position.y = 20.5; holder.add(beam);
+  const ring = new THREE.Mesh(new THREE.RingGeometry(0.9, 1.1, 40), new THREE.MeshBasicMaterial({ color, transparent: true, blending: THREE.AdditiveBlending, depthWrite: false }));
+  ring.rotation.x = -Math.PI / 2; ring.position.y = 0.06; holder.add(ring);
+  holder.userData = { i, ch, halo, ring, beam, spawn: 0, pull: 0 };
+  placeOnSurface(holder, flowerDirs[i], 0, i * 1.7);
+  return holder;
 }
-function syncFlowers() {
+function syncChickens() {
   if (state === 'finale') return;
   const u = unlockedCount();
   for (let i = 0; i < u; i++) {
-    if (!collected.has(i) && !flowerObjs.has(i)) {
-      const f = makeFlower(i); flowerObjs.set(i, f); planetGroup.add(f);
-    }
+    if (!collected.has(i) && !buried.has(i)) { const b = makeBuried(i); buried.set(i, b); planetGroup.add(b); }
   }
 }
-
+// a freed chicken that wanders the planet
+function addRoamer(i, q, ch, popping) {
+  const group = new THREE.Group(); group.add(ch.root); planetGroup.add(group);
+  const r = { i, q: q.clone(), ch, group, mode: popping ? 'pop' : 'roam', t: 0, turnRate: 0, turnT: 0, pause: 0, phase: Math.random() * 6 };
+  if (!popping) { ch.envelope.visible = false; ch.root.position.y = 0; }
+  roamers.push(r);
+  placeRoamer(r);
+  return r;
+}
+function placeRoamer(r) {
+  const d = AY.clone().applyQuaternion(r.q);
+  r.group.position.copy(d).multiplyScalar(R + world.standHeight(d).h);
+  r.group.quaternion.copy(r.q);
+}
 // ============================================================ particles
 const particles = [];
 function burst(pos, color, n = 30, speed = 6, size = 0.6, life = 1.2, tex = glowTex, additive = true) {
@@ -202,6 +215,8 @@ function tone(freq, when, dur = 0.5, vol = 0.15, type = 'sine') {
   o.connect(g).connect(actx.destination); o.start(actx.currentTime + when); o.stop(actx.currentTime + when + dur + 0.05);
 }
 const chime = () => [880, 1108.7, 1318.5].forEach((f, k) => tone(f, k * 0.12, 0.8));
+const popSound = () => { tone(300, 0, 0.15, 0.2, 'square'); tone(900, 0.06, 0.4, 0.15, 'triangle'); };
+const tugSound = () => tone(180 + Math.random() * 120, 0, 0.08, 0.06, 'triangle');
 const collectSound = () => [523.3, 659.3, 784, 1046.5, 1318.5].forEach((f, k) => tone(f, k * 0.08, 0.6, 0.12, 'triangle'));
 
 // ============================================================ UI
@@ -245,20 +260,20 @@ function updateTimeUI() {
   if (state === 'finale') st.classList.add('hidden');
   else if (collected.size === TOTAL) {
     if (!$('btnFinale')) {
-      st.innerHTML = '💖 All 24 flowers found! <button id="btnFinale">Begin the finale ✨</button>';
+      st.innerHTML = '💖 All 24 cabbage chickens rescued! <button id="btnFinale">Begin the finale ✨</button>';
       $('btnFinale').onclick = startFinale;
     }
-  } else if (u === 0) st.textContent = `🌙 The first flower blooms in ${fmtDur(startMs - now())}`;
+  } else if (u === 0) st.textContent = `🌙 The first cabbage chicken pops up in ${fmtDur(startMs - now())}`;
   else {
     const next = u < TOTAL ? ` · next in ${fmtDur(unlockTime(u) - now())}` : '';
     st.textContent = waiting > 0
-      ? `✨ ${waiting} flower${waiting > 1 ? 's are' : ' is'} glowing on the planet!${next}`
-      : `🌱 Next flower blooms in ${fmtDur(unlockTime(u) - now())}`;
+      ? `🥬 ${waiting} cabbage chicken${waiting > 1 ? 's are' : ' is'} stuck in the ground!${next}`
+      : `🌱 Next cabbage chicken pops up in ${fmtDur(unlockTime(u) - now())}`;
   }
   if (u > lastUnlocked) {
-    toast('🌸 A new flower just bloomed! Follow the light ✨');
+    toast('🥬 A cabbage chicken just got stuck somewhere! Follow the light ✨');
     chime();
-    notify('🌸 A new flower bloomed!', 'A glowing flower (and a letter) is waiting on your planet.');
+    notify('🥬 A cabbage chicken is stuck!', 'Go pull it out — it has a letter for you 💌');
   }
   lastUnlocked = u;
 }
@@ -273,12 +288,12 @@ function renderCatalogue() {
     if (collected.has(i)) {
       el.className = 'slot collected';
       el.style.setProperty('--c', '#' + new THREE.Color(PALETTE[i % PALETTE.length]).getHexString());
-      el.innerHTML = `<span class="em">${EMOJI[i % EMOJI.length]}</span><b></b>`;
+      el.innerHTML = `<span class="em">🐣${EMOJI[i % EMOJI.length]}</span><b></b>`;
       el.querySelector('b').textContent = L.title || `Hour ${i + 1}`;
       el.onclick = () => { closeOverlay('catalogue'); openLetter(i); };
     } else if (i < u) {
       el.className = 'slot waiting';
-      el.innerHTML = `<span class="em">✨</span><b>Hour ${i + 1}</b><span>Glowing on the planet</span>`;
+      el.innerHTML = `<span class="em">🥬</span><b>Hour ${i + 1}</b><span>Stuck in the ground!</span>`;
       el.onclick = () => closeOverlay('catalogue');
     } else {
       el.className = 'slot locked';
@@ -296,7 +311,7 @@ function closeOverlay(id) {
 
 function openLetter(i) {
   const L = CONFIG.letters[i] || {};
-  $('letterHour').textContent = `Flower ${i + 1} of ${TOTAL}`;
+  $('letterHour').textContent = `Cabbage chicken ${i + 1} of ${TOTAL}`;
   $('letterTitle').textContent = L.title || `Hour ${i + 1}`;
   const img = $('letterImg'), txt = $('letterText');
   img.classList.add('hidden'); txt.classList.add('hidden');
@@ -317,7 +332,7 @@ $('btnStart').onclick = () => {
   if (matchMedia('(pointer: coarse)').matches) $('joystick').classList.remove('hidden');
   else $('keys').classList.remove('hidden');
   let waiting = 0; for (let i = 0; i < unlockedCount(); i++) if (!collected.has(i)) waiting++;
-  if (waiting) setTimeout(() => toast(`✨ ${waiting} flower${waiting > 1 ? 's are' : ' is'} waiting for you!`), 600);
+  if (waiting) setTimeout(() => toast(`🥬 ${waiting} cabbage chicken${waiting > 1 ? 's are' : ' is'} stuck and waiting for you!`), 600);
 };
 $('btnIntroBell').onclick = askNotify;
 $('btnBell').onclick = askNotify;
@@ -327,6 +342,11 @@ $('btnCat').onclick = () => { renderCatalogue(); openOverlay('catalogue'); };
 $('btnCloseCat').onclick = () => closeOverlay('catalogue');
 $('btnCloseLetter').onclick = () => {
   closeOverlay('letter');
+  // the chicken that just handed over this letter is now free to roam
+  for (const r of roamers) if (r.mode === 'present') {
+    r.mode = 'roam'; r.ch.envelope.visible = false;
+    burst(r.group.localToWorld(V(0, 1.6, 0)), 0xffffff, 6, 2, 0.8, 1.6, heartTex, false);
+  }
   if (pendingFinale.v) { pendingFinale.v = false; toast('💫 Something magical is happening…'); setTimeout(startFinale, 1500); }
 };
 $('btnEndCat').onclick = () => { closeOverlay('ending'); renderCatalogue(); openOverlay('catalogue'); };
@@ -339,20 +359,30 @@ updateBell();
 if (DEBUG) {
   const d = document.createElement('div'); d.id = 'debug';
   const add = (label, fn) => { const b = document.createElement('button'); b.textContent = label; b.onclick = fn; d.appendChild(b); };
-  const setOff = v => { timeOffset = v; store.set('bday-offset', String(v)); syncFlowers(); updateTimeUI(); };
+  const setOff = v => { timeOffset = v; store.set('bday-offset', String(v)); syncChickens(); updateTimeUI(); };
   d.append('DEBUG');
   add('Jump to start', () => setOff(startMs - Date.now() + 1000));
   add('+1 hour', () => setOff(timeOffset + HOUR));
   add('Unlock all', () => setOff(startMs + TOTAL * HOUR - Date.now()));
-  add('Collect all → finale', () => { for (let i = 0; i < TOTAL; i++) collected.add(i); saveProgress(); for (const f of flowerObjs.values()) planetGroup.remove(f); flowerObjs.clear(); updateTimeUI(); startFinale(); });
+  add('Collect all → finale', () => { for (let i = 0; i < TOTAL; i++) if (!collected.has(i)) freeChicken(i, true); updateTimeUI(); startFinale(); });
   add('Planet view on/off', () => { overview = !overview; });
+  add('Teleport to a chicken', () => {
+    const b = buried.values().next().value; if (!b) return toast('No stuck chickens right now');
+    const d = AY.clone().applyQuaternion(b.quaternion);
+    pq.setFromUnitVectors(AY, d).multiply(tq.setFromAxisAngle(AX, -2.2 / R));   // stand just behind it
+  });
   add('Reset everything', () => { store.set('bday-collected', '[]'); store.set('bday-offset', '0'); location.reload(); });
   document.body.appendChild(d);
 }
 
 // ============================================================ input
 const keys = {};
-addEventListener('keydown', e => { keys[e.code] = true; if (state === 'finale' && finale?.phase === 'await' && (e.code === 'Space' || e.code === 'Enter')) cutCake(); });
+addEventListener('keydown', e => {
+  keys[e.code] = true;
+  if (state === 'finale' && finale?.phase === 'await' && (e.code === 'Space' || e.code === 'Enter')) cutCake();
+  if (e.code === 'Space') { e.preventDefault(); if (!e.repeat) pullPress(); }
+});
+$('btnPull').addEventListener('pointerdown', e => { e.preventDefault(); pullPress(); });
 addEventListener('keyup', e => { keys[e.code] = false; });
 const joy = { x: 0, y: 0, id: null };
 {
@@ -379,87 +409,158 @@ camera.position.set(0, R + 7, -11);
 let walkAmt = 0, wet = false, girlH = 0, overview = false;
 let faceYaw = 0, faceTarget = 0;   // which way she visually faces, relative to the camera's heading
 
-function blocked(oldDir, newDir) {
+function blocked(oldDir, newDir, pad = 0.35) {
   for (const o of obstacles) {
     const dn = o.dir.angleTo(newDir) * R;
-    if (dn < o.rad + 0.35 && dn < o.dir.angleTo(oldDir) * R) return true;
+    if (dn < o.rad + pad && dn < o.dir.angleTo(oldDir) * R) return true;
   }
   return false;
 }
 
+let nearChicken = null;
 function updatePlayer(dt, t) {
   const canMove = state === 'play' && !modalOpen;
-  let fwd = 0, turn = 0;
+  // camera-relative movement: W/S forward/back, A/D left/right. The camera never turns;
+  // she simply runs (and faces) whichever way you push.
+  let mx = 0, mz = 0;
   if (canMove) {
-    fwd = (keys.KeyW || keys.ArrowUp ? 1 : 0) - (keys.KeyS || keys.ArrowDown ? 1 : 0) - joy.y;
-    turn = (keys.KeyA || keys.ArrowLeft ? 1 : 0) - (keys.KeyD || keys.ArrowRight ? 1 : 0) - joy.x;
-    fwd = clamp(fwd, -1, 1); turn = clamp(turn, -1, 1);
+    mz = (keys.KeyW || keys.ArrowUp ? 1 : 0) - (keys.KeyS || keys.ArrowDown ? 1 : 0) - joy.y;
+    mx = (keys.KeyA || keys.ArrowLeft ? 1 : 0) - (keys.KeyD || keys.ArrowRight ? 1 : 0) - joy.x;
   }
-  if (turn) pq.multiply(tq.setFromAxisAngle(AY, turn * 2.6 * dt));
-  if (fwd) {
-    const nq = pq.clone().multiply(tq.setFromAxisAngle(AX, (fwd * (wet ? 4 : 7) * dt) / R));
+  let len = Math.hypot(mx, mz);
+  if (len > 1) { mx /= len; mz /= len; len = 1; }
+  if (len > 0.05) {
+    const axis = V(mz, 0, -mx).normalize();
+    const nq = pq.clone().multiply(tq.setFromAxisAngle(axis, (len * (wet ? 4 : 7) * dt) / R));
     const od = AY.clone().applyQuaternion(pq), nd = AY.clone().applyQuaternion(nq);
     if (!blocked(od, nd)) pq.copy(nq);
+    faceTarget = Math.atan2(mx, mz);
   }
   pq.normalize();
   const here = AY.clone().applyQuaternion(pq), stand = world.standHeight(here);
   wet = stand.wet;
   girlH = lerp(girlH, stand.h, 1 - Math.exp(-dt * 12));
   girl.root.position.copy(here).multiplyScalar(R + girlH);
-  if (wet && Math.abs(fwd) > 0.1 && Math.random() < 0.25) burst(here.clone().multiplyScalar(R - 0.1), 0xffffff, 2, 2.5, 0.35, 0.5);
-  // walking backwards = she turns around and runs toward the camera
-  if (fwd > 0.05) faceTarget = 0; else if (fwd < -0.05) faceTarget = Math.PI;
-  const dYaw = Math.atan2(Math.sin(faceTarget - faceYaw), Math.cos(faceTarget - faceYaw));
-  faceYaw += dYaw * (1 - Math.exp(-dt * 10));
-  girl.root.quaternion.copy(pq).multiply(tq.setFromAxisAngle(AY, faceYaw));
-  walkAmt = lerp(walkAmt, Math.abs(fwd) > 0.05 ? 1 : 0, 0.15);
-  animateCharacter(girl, t, walkAmt);
+  if (wet && len > 0.1 && Math.random() < 0.25) burst(here.clone().multiplyScalar(R - 0.1), 0xffffff, 2, 2.5, 0.35, 0.5);
 
-  // camera follows behind & above
-  const k = 1 - Math.exp(-dt * 4);
-  camera.position.lerp((overview ? V(0, R * 2.4, -R * 1.6) : V(0, R + 7, -11)).applyQuaternion(pq), k);
-  camLook.lerp(overview ? V() : V(0, R + 1.5, 4).applyQuaternion(pq), k);
-  camera.up.lerp(AY.clone().applyQuaternion(pq), k).normalize();
-  camera.lookAt(camLook);
-
-  // nearest flower: arrow + pickup
+  // nearest stuck chicken: arrow + pulling
   let best = null, bestD = Infinity;
-  for (const f of flowerObjs.values()) {
-    const d = f.position.distanceTo(girl.root.position);
-    if (d < bestD) { bestD = d; best = f; }
+  for (const b of buried.values()) {
+    const d = b.position.distanceTo(girl.root.position);
+    if (d < bestD) { bestD = d; best = b; }
   }
+  nearChicken = best && bestD < 2.8 && canMove ? best : null;
+  $('btnPull').classList.toggle('hidden', !nearChicken);
   arrowPivot.visible = !!best && bestD > 6;
   if (best) {
     const local = girl.root.worldToLocal(best.position.clone());
     arrowPivot.rotation.y = Math.atan2(local.x, local.z);
     arrowPivot.position.y = 3.1 + Math.sin(t * 4) * 0.12;
-    if (bestD < 2.0 && canMove) collectFlower(best.userData.i);
   }
+  if (nearChicken && len < 0.05) {   // turn to face the chicken she's pulling
+    const rel = nearChicken.position.clone().sub(girl.root.position).applyQuaternion(pq.clone().invert());
+    faceTarget = Math.atan2(rel.x, rel.z);
+  }
+
+  const dYaw = Math.atan2(Math.sin(faceTarget - faceYaw), Math.cos(faceTarget - faceYaw));
+  faceYaw += dYaw * (1 - Math.exp(-dt * 10));
+  girl.root.quaternion.copy(pq).multiply(tq.setFromAxisAngle(AY, faceYaw));
+  walkAmt = lerp(walkAmt, len > 0.05 ? 1 : 0, 0.15);
+  const pulling = nearChicken && nearChicken.userData.pull > 0.02;
+  animateCharacter(girl, t, walkAmt, pulling ? 'pull' : 'walk');
+  if (nearChicken) $('pullFill').style.width = `${Math.round(nearChicken.userData.pull * 100)}%`;
+
+  // camera follows behind & above, always looking the same way
+  const k = 1 - Math.exp(-dt * 4);
+  camera.position.lerp((overview ? V(0, R * 2.4, -R * 1.6) : V(0, R + 7, -11)).applyQuaternion(pq), k);
+  camLook.lerp(overview ? V() : V(0, R + 1.5, 4).applyQuaternion(pq), k);
+  camera.up.lerp(AY.clone().applyQuaternion(pq), k).normalize();
+  camera.lookAt(camLook);
 }
 
-function collectFlower(i) {
-  const f = flowerObjs.get(i); if (!f) return;
-  burst(f.localToWorld(V(0, 1.2, 0)), PALETTE[i % PALETTE.length], 40, 7, 0.8, 1.4);
-  planetGroup.remove(f); flowerObjs.delete(i);
+function pullPress() {
+  if (!nearChicken || state !== 'play' || modalOpen) return;
+  const u = nearChicken.userData;
+  u.pull = Math.min(1, u.pull + 0.085);
+  u.tug = 1;
+  tugSound();
+  if (Math.random() < 0.6) burst(nearChicken.localToWorld(V((Math.random() - 0.5) * 1.2, 0.15, (Math.random() - 0.5) * 1.2)), 0x8a5f3f, 3, 3, 0.3, 0.6, glowTex, false);
+  if (u.pull >= 1) freeChicken(u.i);
+}
+
+// pop the chicken out of the ground; it hands over its letter, then roams
+function freeChicken(i, instant = false) {
+  const holder = buried.get(i);
+  if (holder) {
+    buried.delete(i);
+    const { ch, halo, beam, ring } = holder.userData;
+    holder.remove(halo, beam, ring, ch.root);
+    const r = addRoamer(i, holder.quaternion, ch, !instant);
+    ch.root.position.y = SINK + 0.4;
+    if (!instant) burst(holder.localToWorld(V(0, 0.6, 0)), PALETTE[i % PALETTE.length], 40, 7, 0.8, 1.4);
+    else { r.mode = 'roam'; ch.envelope.visible = false; ch.root.position.y = 0; }
+  }
   collected.add(i); saveProgress();
-  collectSound();
+  if (instant) return;
+  nearChicken = null; $('btnPull').classList.add('hidden');
+  popSound(); collectSound();
   updateTimeUI();
   if (collected.size === TOTAL) pendingFinale.v = true;
-  setTimeout(() => openLetter(i), 450);
+  setTimeout(() => openLetter(i), 1100);
 }
 
-function updateFlowersAnim(dt, t) {
-  for (const f of flowerObjs.values()) {
-    const u = f.userData;
+function updateChickens(dt, t) {
+  // stuck chickens: glow, wiggle while being pulled
+  for (const b of buried.values()) {
+    const u = b.userData;
     u.spawn = Math.min(1, u.spawn + dt * 0.8);
-    f.scale.setScalar(Math.max(0.001, easeOutBack(u.spawn)));
-    u.head.rotation.y += dt;
-    u.head.position.y = 1.2 + Math.sin(t * 2 + u.i) * 0.08;
+    b.scale.setScalar(Math.max(0.001, easeOutBack(u.spawn)));
+    if (b !== nearChicken) u.pull = Math.max(0, u.pull - dt * 0.5);
+    else u.pull = Math.max(0, u.pull - dt * 0.18);
+    u.tug = Math.max(0, (u.tug || 0) - dt * 6);
+    u.ch.root.position.y = SINK + u.pull * 0.45 + u.tug * 0.06;
+    u.ch.root.rotation.z = Math.sin(t * 35) * 0.12 * u.pull + Math.sin(t * 2 + u.i) * 0.04;
     const pulse = 0.5 + 0.5 * Math.sin(t * 3 + u.i);
     u.halo.scale.setScalar(2.8 + pulse * 1.2);
     u.ring.scale.setScalar(1 + ((t * 0.6 + u.i * 0.1) % 1) * 1.5);
     u.ring.material.opacity = 1 - ((t * 0.6 + u.i * 0.1) % 1);
     u.beam.material.opacity = 0.45 + pulse * 0.3;
+  }
+  // freed chickens
+  for (const r of roamers) {
+    const root = r.ch.root;
+    r.t += dt;
+    if (r.mode === 'pop') {                       // big hop out of the hole
+      const p = clamp(r.t / 1.0, 0, 1);
+      root.position.y = lerp(SINK + 0.4, 0, p) + Math.sin(Math.PI * p) * 2.2;
+      root.rotation.set(0, p * Math.PI * 2, 0);
+      if (p >= 1) { r.mode = 'present'; root.rotation.set(0, 0, 0); }
+      continue;
+    }
+    if (r.mode === 'present') {                   // stand there proudly, facing her
+      const rel = girl.root.position.clone().sub(r.group.position).applyQuaternion(r.q.clone().invert());
+      root.rotation.y = lerp(root.rotation.y, Math.atan2(rel.x, rel.z), 0.15);
+      root.position.y = Math.abs(Math.sin(t * 6)) * 0.12;
+      continue;
+    }
+    // roam: wander, pause, turn away from trees, water and her
+    root.rotation.y *= 0.9;
+    r.turnT -= dt;
+    if (r.turnT < 0) { r.turnRate = (Math.random() - 0.5) * 2.2; r.turnT = 1 + Math.random() * 3; r.pause = Math.random() < 0.3 ? 0.8 + Math.random() * 1.8 : 0; }
+    let moving = false;
+    if (r.pause > 0) r.pause -= dt;
+    else {
+      r.q.multiply(tq.setFromAxisAngle(AY, r.turnRate * dt));
+      const nq = r.q.clone().multiply(tq.setFromAxisAngle(AX, (1.4 * dt) / R));
+      const od = AY.clone().applyQuaternion(r.q), nd = AY.clone().applyQuaternion(nq);
+      const tooClose = nd.clone().multiplyScalar(R).distanceTo(girl.root.position) < 1.6;
+      if (blocked(od, nd, 0.5) || world.standHeight(nd).wet || tooClose) { r.turnRate = (r.turnRate >= 0 ? 1 : -1) * 2.8; r.turnT = 0.7; }
+      else { r.q.copy(nq); moving = true; }
+      r.q.normalize();
+    }
+    placeRoamer(r);
+    root.position.y = moving ? Math.abs(Math.sin(t * 9 + r.phase)) * 0.16 : 0;
+    root.rotation.z = moving ? Math.sin(t * 9 + r.phase) * 0.1 : 0;
   }
 }
 
@@ -526,8 +627,9 @@ function startFinale() {
   ['status', 'keys'].forEach(id => $(id).classList.add('hidden'));
   $('joystick').classList.add('hidden');
   arrowPivot.visible = false;
-  for (const f of flowerObjs.values()) planetGroup.remove(f);
-  flowerObjs.clear();
+  for (const b of buried.values()) planetGroup.remove(b);
+  buried.clear();
+  $('btnPull').classList.add('hidden');
   finale = { phase: 'float', t: 0, fq: pq.clone(), start: girl.root.position.clone(), look: camLook.clone() };
   girl.root.quaternion.copy(pq);
   cake.quaternion.copy(finale.fq);
@@ -615,7 +717,7 @@ const clock = new THREE.Clock();
 function frame() {
   const dt = Math.min(clock.getDelta(), 0.05), t = clock.elapsedTime;
   if (state === 'finale') updateFinale(dt, t); else updatePlayer(dt, t);
-  updateFlowersAnim(dt, t);
+  updateChickens(dt, t);
   updateParticles(dt);
   cloudPivot.rotation.y += dt * 0.02;
   for (const c of cloudPivot.children) {   // elephants gently bob up and down
@@ -639,7 +741,9 @@ addEventListener('resize', () => {
   renderer.setSize(innerWidth, innerHeight); composer.setSize(innerWidth, innerHeight);
 });
 
-syncFlowers();
+// chickens rescued on earlier visits are already roaming
+for (const i of collected) addRoamer(i, new THREE.Quaternion().setFromUnitVectors(AY, flowerDirs[i]), makeCabbageChicken(new THREE.Color(PALETTE[i % PALETTE.length])), false);
+syncChickens();
 updateTimeUI();
-setInterval(() => { syncFlowers(); updateTimeUI(); }, 1000);
+setInterval(() => { syncChickens(); updateTimeUI(); }, 1000);
 frame();

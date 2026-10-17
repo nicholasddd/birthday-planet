@@ -335,7 +335,7 @@ export function buildPlanet(seed = 1) {
     if (d.angleTo(AY) < 0.16) continue;
     const s = sample(d.x, d.y, d.z);
     if (isWet(s) || s.pd < PW * 1.8) continue;
-    if (flowerDirs.some(f => f.angleTo(d) < 0.12)) continue;
+    if (flowerDirs.some(f => f.angleTo(d) < 0.21)) continue;   // keep a little clearing around each chicken spot
     if (bridges.some(b => b.dir.angleTo(d) < 0.13)) continue;
     const sc = 0.75 + rng() * 0.5;
     if (trees.some(t => t.d.angleTo(d) * R < (t.s + sc) * 1.05)) continue;

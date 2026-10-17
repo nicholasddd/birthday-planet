@@ -30,6 +30,7 @@
   .right { display: flex; gap: 6px; }
   .iconbtn { pointer-events: auto; width: 44px; height: 44px; border-radius: 50%; background: var(--glass); backdrop-filter: blur(10px); box-shadow: var(--shadow); font-size: 20px; position: relative; }
   .iconbtn .badge { position: absolute; top: -4px; right: -4px; background: var(--pink-deep); color: #fff; font-size: 11px; font-weight: 700; border-radius: 999px; padding: 2px 6px; }
+  .pc-touch { display: none; } @media (pointer: coarse) { .pc-touch { display: inline; } .pc-text { display: none; } }
   #keys { position: fixed; bottom: 16px; left: 50%; transform: translateX(-50%); font-size: 13px; opacity: .8; }
 
   /* ---------- Joystick ---------- */
@@ -69,6 +70,11 @@
   .slot.locked { opacity: .55; cursor: default; }
   .slot b { font-weight: 600; }
 
+  #btnPull { position: fixed; bottom: max(96px, calc(env(safe-area-inset-bottom) + 80px)); left: 50%; transform: translateX(-50%); z-index: 12; background: white; border-radius: 22px; padding: 12px 22px 14px; box-shadow: var(--shadow); font-size: 17px; font-weight: 700; text-align: center; min-width: 240px; touch-action: manipulation; animation: wobble .5s ease-in-out infinite; }
+  #btnPull:active { transform: translateX(-50%) scale(.94); }
+  #btnPull .track { margin-top: 8px; height: 10px; border-radius: 999px; background: #eef3e4; overflow: hidden; }
+  #pullFill { display: block; height: 100%; width: 0; background: linear-gradient(90deg, #9bd35a, #6cbd3c); border-radius: 999px; transition: width .08s; }
+  @keyframes wobble { 50% { transform: translateX(-50%) rotate(-1.5deg); } }
   #cutHint { position: fixed; bottom: 12%; left: 50%; transform: translateX(-50%); font-size: 20px; z-index: 10; animation: glow 1.4s infinite; pointer-events: none; }
   #debug { position: fixed; bottom: 12px; right: 12px; background: rgba(0,0,0,.6); color: #fff; padding: 8px; border-radius: 12px; display: flex; flex-direction: column; gap: 4px; font-size: 12px; z-index: 40; }
   #debug button { background: #fff; color: #000; border-radius: 8px; padding: 4px 8px; font-size: 12px; }
@@ -96,17 +102,18 @@
     </div>
   </div>
   <div class="pill" id="status">…</div>
-  <div class="pill hidden" id="keys">WASD / arrow keys to walk 🌷</div>
+  <div class="pill hidden" id="keys">WASD / arrows to run · SPACE to pull 🥬</div>
 </div>
 <div id="joystick" class="hidden"><div id="knob"></div></div>
 <div id="toasts"></div>
+<button id="btnPull" class="hidden"><span class="pc-text">Spam <b>SPACE</b> to pull! 🥬</span><span class="pc-touch">Tap tap tap to pull! 🥬</span><div class="track"><i id="pullFill"></i></div></button>
 <div id="cutHint" class="pill hidden">🔪 Tap the cake to cut it!</div>
 
 <div id="intro" class="overlay open">
   <div class="card">
     <h1 id="introTitle">Happy Birthday! 🎂</h1>
     <p>A tiny planet has grown just for you.</p>
-    <p>Every hour for the next 24 hours, a <b>glowing flower</b> blooms somewhere on it. Each one holds a letter. Go find them all 💌</p>
+    <p>Every hour for the next 24 hours, a little <b>cabbage chicken</b> gets stuck in the ground somewhere (look for the glow ✨).</p><p>Run over and pull it out! Each one is holding a letter for you 💌</p>
     <button class="btn" id="btnStart">Let's go ✨</button>
     <br /><button class="btn soft" id="btnIntroBell">🔔 Remind me when flowers bloom</button>
   </div>
@@ -124,7 +131,7 @@
 
 <div id="catalogue" class="overlay">
   <div class="card">
-    <h1>Your flower collection</h1>
+    <h1>Your cabbage chickens</h1>
     <div id="catSummary"></div>
     <div id="grid"></div>
     <button class="btn" id="btnCloseCat" style="margin-top:16px">Close</button>
@@ -134,7 +141,7 @@
 <div id="ending" class="overlay">
   <div class="card">
     <h1 id="endTitle">Happy Birthday 💖</h1>
-    <p>24 flowers, 24 letters, and one very lucky boy.</p>
+    <p>24 cabbage chickens, 24 letters, and one very lucky boy.</p>
     <button class="btn" id="btnEndCat">📖 Read the letters again</button>
     <button class="btn soft" id="btnReplay">Replay ✨</button>
   </div>

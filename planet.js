@@ -46,6 +46,98 @@ class Line {
   }
 }
 
+// ---------------------------------------------------------------- soft "moss" texturing
+// A fuzzy grass-blade detail texture plus tiny wildflower specks, projected with
+// triplanar mapping so it works on the sphere and on instanced trees without UVs.
+function canvasTexture(size, draw, srgb) {
+  const c = document.createElement('canvas'); c.width = c.height = size;
+  draw(c.getContext('2d'), size);
+  const t = new THREE.CanvasTexture(c);
+  t.wrapS = t.wrapT = THREE.RepeatWrapping; t.anisotropy = 8;
+  if (srgb) t.colorSpace = THREE.SRGBColorSpace;
+  return t;
+}
+const wrapDraw = (size, x, y, fn) => { for (const dx of [-size, 0, size]) for (const dy of [-size, 0, size]) fn(x + dx, y + dy); };
+const detailTex = canvasTexture(512, (x, n) => {
+  const r = mulberry32(5);
+  x.fillStyle = 'rgb(128,128,128)'; x.fillRect(0, 0, n, n);
+  // soft clumps of light and shade
+  for (let i = 0; i < 260; i++) {
+    const px = r() * n, py = r() * n, rad = 18 + r() * 50, l = r() < 0.5 ? 70 : 200;
+    wrapDraw(n, px, py, (X, Y) => {
+      const g = x.createRadialGradient(X, Y, 0, X, Y, rad);
+      g.addColorStop(0, `rgba(${l},${l},${l},0.35)`); g.addColorStop(1, `rgba(${l},${l},${l},0)`);
+      x.fillStyle = g; x.fillRect(X - rad, Y - rad, rad * 2, rad * 2);
+    });
+  }
+  x.lineCap = 'round';
+  for (let i = 0; i < 9000; i++) {
+    const px = r() * n, py = r() * n, a = r() * Math.PI * 2, len = 6 + r() * 14, l = Math.floor(60 + r() * 140);
+    x.strokeStyle = `rgba(${l},${l},${l},0.55)`; x.lineWidth = 2 + r() * 2.5;
+    wrapDraw(n, px, py, (X, Y) => { x.beginPath(); x.moveTo(X, Y); x.lineTo(X + Math.cos(a) * len, Y + Math.sin(a) * len); x.stroke(); });
+  }
+});
+const flowerTex = canvasTexture(512, (x, n) => {
+  const r = mulberry32(9), cols = ['255,214,234', '255,255,255', '255,240,160', '255,158,200', '220,200,255'];
+  for (let i = 0; i < 700; i++) {
+    const px = r() * n, py = r() * n, rad = 4 + r() * 6, col = cols[Math.floor(r() * cols.length)];
+    wrapDraw(n, px, py, (X, Y) => {
+      const g = x.createRadialGradient(X, Y, 0, X, Y, rad);
+      g.addColorStop(0, `rgba(${col},1)`); g.addColorStop(0.6, `rgba(${col},0.85)`); g.addColorStop(1, `rgba(${col},0)`);
+      x.fillStyle = g; x.beginPath(); x.arc(X, Y, rad, 0, Math.PI * 2); x.fill();
+    });
+  }
+}, true);
+
+export function softify(mat, { scale = 0.35, strength = 0.7, flowers = 0 } = {}) {
+  mat.onBeforeCompile = sh => {
+    Object.assign(sh.uniforms, {
+      uDetail: { value: detailTex }, uFlowers: { value: flowerTex },
+      uScale: { value: scale }, uStrength: { value: strength }, uFlowerAmt: { value: flowers },
+    });
+    sh.vertexShader = sh.vertexShader
+      .replace('#include <common>', '#include <common>\nvarying vec3 vTPos;\nvarying vec3 vTNorm;')
+      .replace('#include <project_vertex>', `#include <project_vertex>
+        vec4 tpW = vec4(transformed, 1.0); vec3 tnW = objectNormal;
+        #ifdef USE_INSTANCING
+          tpW = instanceMatrix * tpW; tnW = mat3(instanceMatrix) * tnW;
+        #endif
+        vTPos = (modelMatrix * tpW).xyz; vTNorm = normalize(mat3(modelMatrix) * tnW);`);
+    sh.fragmentShader = sh.fragmentShader
+      .replace('#include <common>', `#include <common>
+        varying vec3 vTPos; varying vec3 vTNorm;
+        uniform sampler2D uDetail; uniform sampler2D uFlowers;
+        uniform float uScale; uniform float uStrength; uniform float uFlowerAmt;`)
+      .replace('#include <color_fragment>', `#include <color_fragment>
+        {
+          vec3 bw = pow(abs(normalize(vTNorm)), vec3(4.0)); bw /= dot(bw, vec3(1.0));
+          vec3 p = vTPos * uScale;
+          float d = texture2D(uDetail, p.yz).r * bw.x + texture2D(uDetail, p.xz).r * bw.y + texture2D(uDetail, p.xy).r * bw.z;
+          diffuseColor.rgb *= mix(1.0, d * 2.0, uStrength);
+          if (uFlowerAmt > 0.0) {
+            vec3 q = p * 1.1;
+            vec4 f = texture2D(uFlowers, q.yz) * bw.x + texture2D(uFlowers, q.xz) * bw.y + texture2D(uFlowers, q.xy) * bw.z;
+            float grass = smoothstep(0.03, 0.12, diffuseColor.g - max(diffuseColor.r, diffuseColor.b));
+            diffuseColor.rgb = mix(diffuseColor.rgb, f.rgb, clamp(f.a, 0.0, 1.0) * uFlowerAmt * grass);
+          }
+        }`);
+  };
+  mat.customProgramCacheKey = () => `soft-${scale}-${strength}-${flowers}`;
+  return mat;
+}
+
+// soft blurry cloud sprite texture
+const cloudTex = canvasTexture(256, (x, n) => {
+  const r = mulberry32(3);
+  for (let i = 0; i < 26; i++) {
+    const px = n * (0.2 + r() * 0.6), py = n * (0.45 + (r() - 0.5) * 0.25), rad = n * (0.1 + r() * 0.14);
+    const g = x.createRadialGradient(px, py, 0, px, py, rad);
+    g.addColorStop(0, 'rgba(255,255,255,0.55)'); g.addColorStop(1, 'rgba(255,255,255,0)');
+    x.fillStyle = g; x.fillRect(0, 0, n, n);
+  }
+}, true);
+cloudTex.wrapS = cloudTex.wrapT = THREE.ClampToEdgeWrapping;
+
 export function buildPlanet(seed = 1) {
   const rng = mulberry32(seed * 7919 + 13);
   const group = new THREE.Group();
@@ -89,7 +181,7 @@ export function buildPlanet(seed = 1) {
   geo = mergeVertices(geo);
   const pos = geo.attributes.position, cols = new Float32Array(pos.count * 3);
   const C = hex => new THREE.Color(hex);
-  const grassA = C(0x7ccf45), grassB = C(0xa3e35f), grassC = C(0x5fbf3f), sand = C(0xf4e4a8), path = C(0xf0d996);
+  const grassA = C(0x6cbd3c), grassB = C(0x96d457), grassC = C(0x5aa836), sand = C(0xf4e4a8), path = C(0xf0d996);
   const riverBed = C(0x3fb1ea), deep = C(0x1d6fd0), foam = C(0xe9fbff);
   const c = new THREE.Color();
   for (let i = 0; i < pos.count; i++) {
@@ -109,12 +201,12 @@ export function buildPlanet(seed = 1) {
   }
   geo.setAttribute('color', new THREE.BufferAttribute(cols, 3));
   geo.computeVertexNormals();
-  const ground = new THREE.Mesh(geo, new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.95 }));
+  const ground = new THREE.Mesh(geo, softify(new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 1 }), { scale: 0.15, strength: 0.9, flowers: 1.0 }));
   ground.receiveShadow = true;
   group.add(ground);
 
   const water = new THREE.Mesh(new THREE.SphereGeometry(R + WATER, 160, 120),
-    new THREE.MeshStandardMaterial({ color: 0x5fd0ff, transparent: true, opacity: 0.78, roughness: 0.08, metalness: 0.05, emissive: 0x0b4f80, emissiveIntensity: 0.25 }));
+    new THREE.MeshStandardMaterial({ color: 0x6cc4f2, transparent: true, opacity: 0.85, roughness: 0.18, metalness: 0.0, emissive: 0x2a78b8, emissiveIntensity: 0.35 }));
   water.receiveShadow = true;
   group.add(water);
 
@@ -215,10 +307,10 @@ export function buildPlanet(seed = 1) {
   const fruitCount = rounds.filter(t => t.fruit >= 0).length * fruitOffsets.length;
 
   const trunkI = new THREE.InstancedMesh(trunkG, new THREE.MeshStandardMaterial({ color: 0x8a5a3c, roughness: 0.9 }), trees.length);
-  const canopyI = new THREE.InstancedMesh(canopyG, new THREE.MeshStandardMaterial({ roughness: 0.85 }), Math.max(1, rounds.length));
-  const cedarI = new THREE.InstancedMesh(cedarG, new THREE.MeshStandardMaterial({ roughness: 0.85 }), Math.max(1, cedars.length));
+  const canopyI = new THREE.InstancedMesh(canopyG, softify(new THREE.MeshStandardMaterial({ roughness: 1 }), { scale: 0.45, strength: 0.9, flowers: 0.3 }), Math.max(1, rounds.length));
+  const cedarI = new THREE.InstancedMesh(cedarG, softify(new THREE.MeshStandardMaterial({ roughness: 1 }), { scale: 0.45, strength: 0.9 }), Math.max(1, cedars.length));
   const fruitI = new THREE.InstancedMesh(new THREE.SphereGeometry(0.13, 10, 8), new THREE.MeshStandardMaterial({ roughness: 0.4 }), Math.max(1, fruitCount));
-  const leafCols = [0x5cc23c, 0x6fd046, 0x4fb53a, 0x7ad84f].map(C), cedarCols = [0x2f8f4a, 0x3a9e52].map(C), fruitCols = [0xff4a3d, 0xffb020, 0xff7aa8].map(C);
+  const leafCols = [0x62b743, 0x77c853, 0x58a83c, 0x86d160].map(C), cedarCols = [0x4f9a5c, 0x5aa866].map(C), fruitCols = [0xff4a3d, 0xffb020, 0xff7aa8].map(C);
   let ri = 0, ci = 0, fi = 0;
   trees.forEach((t, i) => {
     placeOnSurface(dummy, t.d, -0.05, t.spin); dummy.scale.setScalar(t.s); dummy.updateMatrix();
@@ -238,7 +330,7 @@ export function buildPlanet(seed = 1) {
   for (const m of [trunkI, canopyI, cedarI, fruitI]) { m.castShadow = true; m.receiveShadow = true; group.add(m); }
 
   // palms around the lagoon beach
-  const palmTrunkM = new THREE.MeshStandardMaterial({ color: 0xc89a64, roughness: 0.9 }), palmLeafM = new THREE.MeshStandardMaterial({ color: 0x4fbf4a, roughness: 0.8 });
+  const palmTrunkM = new THREE.MeshStandardMaterial({ color: 0xc89a64, roughness: 0.9 }), palmLeafM = softify(new THREE.MeshStandardMaterial({ color: 0x74c35e, roughness: 1 }), { scale: 0.9, strength: 0.6 });
   for (let k = 0; k < 7; k++) {
     const t = randTangent(lakeC, rng), d = lakeC.clone().applyAxisAngle(t.cross(lakeC).normalize(), (LAKE + BEACH) / 2 + 0.02);
     const palm = new THREE.Group();
@@ -278,13 +370,32 @@ export function buildPlanet(seed = 1) {
 
   const tuftG = mergeGeometries([-0.12, 0, 0.12].map((x, k) => new THREE.ConeGeometry(0.06, 0.35 - k * 0.05, 4).translate(x, 0.16, (k - 1) * 0.04)));
   const tufts = [];
-  for (let k = 0; k < 2000 && tufts.length < 700; k++) {
+  for (let k = 0; k < 8000 && tufts.length < 2600; k++) {
     const d = randDir(rng), s = sample(d.x, d.y, d.z);
     if (!isWet(s) && s.pd > PW) tufts.push(d);
   }
-  const tuftI = new THREE.InstancedMesh(tuftG, new THREE.MeshStandardMaterial({ color: 0x5dbb3a, roughness: 1 }), tufts.length);
-  tufts.forEach((d, i) => { placeOnSurface(dummy, d, -0.02, rng() * 6); dummy.updateMatrix(); tuftI.setMatrixAt(i, dummy.matrix); });
+  const tuftI = new THREE.InstancedMesh(tuftG, new THREE.MeshStandardMaterial({ roughness: 1 }), tufts.length);
+  const tuftCols = [0x64b23f, 0x7cc552, 0x579f37, 0x8fd05e].map(C);
+  tufts.forEach((d, i) => {
+    placeOnSurface(dummy, d, -0.02, rng() * 6); dummy.scale.setScalar(0.8 + rng() * 0.7); dummy.updateMatrix();
+    tuftI.setMatrixAt(i, dummy.matrix); tuftI.setColorAt(i, tuftCols[Math.floor(rng() * tuftCols.length)]);
+  });
+  tuftI.receiveShadow = true;
   group.add(tuftI);
+
+  // scattered wildflower dots (like the meadow in a field of pink/white/yellow)
+  const dots = [];
+  for (let k = 0; k < 9000 && dots.length < 3200; k++) {
+    const d = randDir(rng), s = sample(d.x, d.y, d.z);
+    if (!isWet(s) && s.pd > PW) dots.push(d);
+  }
+  const dotCols = [0xffc4de, 0xffffff, 0xfff0a0, 0xff9cc6, 0xe0ccff].map(C);
+  const dotI = new THREE.InstancedMesh(new THREE.SphereGeometry(0.06, 6, 4).scale(1, 0.7, 1).translate(0, 0.14, 0), new THREE.MeshStandardMaterial({ roughness: 0.8 }), dots.length);
+  dots.forEach((d, i) => {
+    placeOnSurface(dummy, d, 0, 0); dummy.scale.setScalar(0.7 + rng() * 0.8); dummy.updateMatrix();
+    dotI.setMatrixAt(i, dummy.matrix); dotI.setColorAt(i, dotCols[Math.floor(rng() * dotCols.length)]);
+  });
+  group.add(dotI);
 
   // a few river stones
   const stoneM = new THREE.MeshStandardMaterial({ color: 0xc9c4cf, roughness: 0.9 });
@@ -299,16 +410,11 @@ export function buildPlanet(seed = 1) {
 
   // ---------------------------------------------------------------- clouds
   const cloudPivot = new THREE.Group(); group.add(cloudPivot);
-  const cloudM = new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 1 });
-  for (let i = 0; i < 12; i++) {
-    const cl = new THREE.Group();
-    for (let k = 0; k < 5; k++) {
-      const b = new THREE.Mesh(new THREE.SphereGeometry(1, 16, 12), cloudM);
-      b.position.set((k - 2) * 0.9, (k === 2 ? 0.5 : 0) + rng() * 0.3, (rng() - 0.5) * 0.6);
-      b.scale.setScalar(k === 2 ? 1.3 : 0.75 + rng() * 0.4); cl.add(b);
-    }
-    const d = randDir(rng); cl.position.copy(d).multiplyScalar(R + 9 + rng() * 3); cl.quaternion.setFromUnitVectors(AY, d);
-    cloudPivot.add(cl);
+  for (let i = 0; i < 14; i++) {
+    const sp = new THREE.Sprite(new THREE.SpriteMaterial({ map: cloudTex, transparent: true, depthWrite: false, opacity: 0.9 }));
+    const w = 7 + rng() * 6; sp.scale.set(w, w * 0.55, 1);
+    sp.position.copy(randDir(rng)).multiplyScalar(R + 8 + rng() * 5);
+    cloudPivot.add(sp);
   }
 
   return { group, flowerDirs, obstacles, cloudPivot, placeOnSurface, standHeight, shadowAll };

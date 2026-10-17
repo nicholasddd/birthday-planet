@@ -43,31 +43,46 @@ const renderer = new THREE.WebGLRenderer({ antialias: true });
 renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
 renderer.setSize(innerWidth, innerHeight);
 renderer.shadowMap.enabled = true;
-renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+renderer.shadowMap.type = THREE.PCFShadowMap; // PCF + radius = soft, blurry shadows
 renderer.toneMapping = THREE.ACESFilmicToneMapping;
 $('app').appendChild(renderer.domElement);
 
 const scene = new THREE.Scene();
-const DAY_SKY = new THREE.Color(0x9fdcff), NIGHT_SKY = new THREE.Color(0x2e2a6b);
-scene.background = DAY_SKY.clone();
+// soft gradient sky that always follows "up" for wherever she stands
+const SKY = {
+  dayTop: new THREE.Color(0x2a7fd4), dayBottom: new THREE.Color(0x9fd2fb),
+  nightTop: new THREE.Color(0x15123f), nightBottom: new THREE.Color(0x3a3478),
+};
+const sky = new THREE.Mesh(new THREE.SphereGeometry(420, 32, 16), new THREE.ShaderMaterial({
+  side: THREE.BackSide, depthWrite: false, fog: false,
+  uniforms: { uTop: { value: SKY.dayTop.clone() }, uBottom: { value: SKY.dayBottom.clone() }, uUp: { value: new THREE.Vector3(0, 1, 0) } },
+  vertexShader: `varying vec3 vDir; void main() { vDir = (modelMatrix * vec4(position, 1.0)).xyz - cameraPosition; gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0); }`,
+  fragmentShader: `uniform vec3 uTop; uniform vec3 uBottom; uniform vec3 uUp; varying vec3 vDir;
+    void main() { float h = dot(normalize(vDir), uUp); gl_FragColor = vec4(mix(uBottom, uTop, smoothstep(-0.25, 0.75, h)), 1.0); }`,
+}));
+sky.renderOrder = -1;
+scene.add(sky);
+scene.fog = new THREE.FogExp2(SKY.dayBottom.clone(), 0.0045);
 const camera = new THREE.PerspectiveCamera(55, innerWidth / innerHeight, 0.1, 1000);
 
 const composer = new EffectComposer(renderer);
 composer.addPass(new RenderPass(scene, camera));
-const bloom = new UnrealBloomPass(new THREE.Vector2(innerWidth, innerHeight), 0.7, 0.5, 0.95);
+const bloom = new UnrealBloomPass(new THREE.Vector2(innerWidth, innerHeight), 0.35, 0.55, 0.97);
 composer.addPass(bloom);
 composer.addPass(new OutputPass());
 
-scene.add(new THREE.HemisphereLight(0xe8f6ff, 0x7aa860, 1.15));
-const sun = new THREE.DirectionalLight(0xfff3e0, 1.8);
+const hemi = new THREE.HemisphereLight(0xeaf5ff, 0x8fb872, 1.05);
+scene.add(hemi);
+const sun = new THREE.DirectionalLight(0xfff4e6, 1.6);
 sun.castShadow = true;
 sun.shadow.mapSize.set(2048, 2048);
 Object.assign(sun.shadow.camera, { left: -28, right: 28, top: 28, bottom: -28, near: 1, far: 140 });
 sun.shadow.bias = -0.0005;
+sun.shadow.radius = 5;
 scene.add(sun, sun.target);
 
 // stars (only shown when night falls in the finale)
-const starsMat = new THREE.PointsMaterial({ color: 0xfff6e0, size: 1.3, sizeAttenuation: true, transparent: true, opacity: 0 });
+const starsMat = new THREE.PointsMaterial({ color: 0xfff6e0, size: 1.3, sizeAttenuation: true, transparent: true, opacity: 0, fog: false });
 {
   const g = new THREE.BufferGeometry(), pts = [], rng = mulberry32(7);
   for (let i = 0; i < 1500; i++) pts.push(...randDir(rng).multiplyScalar(250 + rng() * 100).toArray());
@@ -659,7 +674,7 @@ function updateFinale(dt, t) {
     look = F(-13, 16, 6).lerp(F(-13, 40, -10), e);
     if (p > 0.55 && !f.ended) { f.ended = true; openOverlay('ending'); }
   }
-  if (f.phase !== 'float' || f.t > 1.5) { scene.background.lerp(NIGHT_SKY, 1 - Math.exp(-dt * 0.8)); starsMat.opacity = Math.min(1, starsMat.opacity + dt * 0.3); }
+  if (f.phase !== 'float' || f.t > 1.5) { const nk = 1 - Math.exp(-dt * 0.8); sky.material.uniforms.uTop.value.lerp(SKY.nightTop, nk); sky.material.uniforms.uBottom.value.lerp(SKY.nightBottom, nk); starsMat.opacity = Math.min(1, starsMat.opacity + dt * 0.3); }
   animateCharacter(girl, t, 0, 'fly');
   for (const fl of flames) fl.scale.y = 1.6 + Math.sin(t * 20 + fl.position.x) * 0.25;
 
@@ -682,6 +697,10 @@ function frame() {
   const camDir = camera.position.clone().normalize();
   const side = V().crossVectors(camDir, camera.up).normalize();
   sun.position.copy(camDir).multiplyScalar(60).addScaledVector(side, 25).addScaledVector(camera.up, 25);
+  hemi.position.copy(camera.up);   // sky light always comes from her "up"
+  sky.position.copy(camera.position);
+  sky.material.uniforms.uUp.value.copy(camera.up);
+  scene.fog.color.copy(sky.material.uniforms.uBottom.value);
   composer.render();
   requestAnimationFrame(frame);
 }

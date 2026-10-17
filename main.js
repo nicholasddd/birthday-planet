@@ -138,8 +138,8 @@ const arrowPivot = new THREE.Group(); arrowPivot.position.y = 3.1; girl.root.add
   arrowPivot.add(new THREE.Mesh(g, new THREE.MeshStandardMaterial({ color: 0xffe066, emissive: 0xffc400, emissiveIntensity: 1.5 })));
 }
 
-// ============================================================ cabbage chickens
-// Each hour a cabbage chicken gets stuck in the ground (glowing so it's easy to find).
+// ============================================================ chouchous (cabbage chickens)
+// Each hour a chouchou gets stuck in the ground (glowing so it's easy to find).
 // She spams SPACE to pull it out; it hands over the letter in its beak, keeps its flower,
 // and then waddles around the planet freely.
 const PALETTE = [0xff6fa8, 0xffb347, 0xb084ff, 0x6fd3ff, 0xff8a80, 0xfff176, 0x81f5c1, 0xff9de2];
@@ -240,7 +240,7 @@ function fmtDur(ms) {
   return h > 0 ? `${h}:${p2(m)}:${p2(ss)}` : `${m}:${p2(ss)}`;
 }
 function toast(msg) {
-  const el = document.createElement('div'); el.className = 'toast'; el.textContent = msg;
+  const el = document.createElement('div'); el.className = 'toast glass'; el.textContent = msg;
   $('toasts').appendChild(el); setTimeout(() => el.remove(), 4200);
 }
 function notify(title, body) {
@@ -262,29 +262,26 @@ function updateTimeUI() {
   const u = unlockedCount();
   let waiting = 0, holding = 0;
   for (let i = 0; i < u; i++) { if (!pulled.has(i)) waiting++; else if (!collected.has(i)) holding++; }
-  $('count').textContent = `${collected.size} / ${TOTAL}`;
+  $('count').textContent = `${collected.size}/${TOTAL}`;
   $('catBadge').textContent = collected.size;
   const st = $('status');
   st.classList.toggle('ready', waiting + holding > 0);
+  const dot = '<span class="dot"></span>';
+  const next = u < TOTAL ? ` · next in ${fmtDur(unlockTime(u) - now())}` : '';
   if (state === 'finale') st.classList.add('hidden');
   else if (collected.size === TOTAL) {
     if (!$('btnFinale')) {
-      st.innerHTML = '💖 All 24 cabbage chickens rescued! <button id="btnFinale">Begin the finale ✨</button>';
+      st.innerHTML = `${dot}All 24 letters found <button id="btnFinale">begin the finale</button>`;
       $('btnFinale').onclick = startFinale;
     }
-  } else if (u === 0) st.textContent = `🌙 The first cabbage chicken pops up in ${fmtDur(startMs - now())}`;
-  else {
-    const next = u < TOTAL ? ` · next in ${fmtDur(unlockTime(u) - now())}` : '';
-    st.textContent = waiting > 0
-      ? `🥬 ${waiting} cabbage chicken${waiting > 1 ? 's are' : ' is'} stuck in the ground!${next}`
-      : holding > 0
-        ? `💌 ${holding > 1 ? holding + ' chickens are' : 'A chicken is'} waiting to give you a letter!${next}`
-        : `🌱 Next cabbage chicken pops up in ${fmtDur(unlockTime(u) - now())}`;
-  }
+  } else if (u === 0) st.innerHTML = `${dot}First chouchou in ${fmtDur(startMs - now())}`;
+  else if (waiting > 0) st.innerHTML = `${dot}${waiting > 1 ? waiting + ' chouchous are' : 'A chouchou is'} stuck${next}`;
+  else if (holding > 0) st.innerHTML = `${dot}A chouchou has a letter for you${next}`;
+  else st.innerHTML = `${dot}Next chouchou in ${fmtDur(unlockTime(u) - now())}`;
   if (u > lastUnlocked) {
-    toast('🥬 A cabbage chicken just got stuck somewhere! Follow the light ✨');
+    toast('🥬 A chouchou got stuck somewhere — follow the glow');
     chime();
-    notify('🥬 A cabbage chicken is stuck!', 'Go pull it out — it has a letter for you 💌');
+    notify('🥬 A chouchou is stuck!', 'Go pull it out — it has a letter for you 💌');
   }
   lastUnlocked = u;
 }
@@ -292,7 +289,7 @@ function updateTimeUI() {
 function renderCatalogue() {
   const grid = $('grid'); grid.innerHTML = '';
   const u = unlockedCount();
-  $('catSummary').textContent = `${collected.size} of ${TOTAL} letters collected`;
+  $('catSummary').textContent = `${collected.size} of ${TOTAL} letters received`;
   for (let i = 0; i < TOTAL; i++) {
     const el = document.createElement('button');
     const L = CONFIG.letters[i] || {};
@@ -326,7 +323,7 @@ function closeOverlay(id) {
 
 function openLetter(i) {
   const L = CONFIG.letters[i] || {};
-  $('letterHour').textContent = `Cabbage chicken ${i + 1} of ${TOTAL}`;
+  $('letterHour').textContent = `chouchou ${i + 1} of ${TOTAL}`;
   $('letterTitle').textContent = L.title || `Hour ${i + 1}`;
   const img = $('letterImg'), txt = $('letterText');
   img.classList.add('hidden'); txt.classList.add('hidden');
@@ -347,7 +344,7 @@ $('btnStart').onclick = () => {
   if (matchMedia('(pointer: coarse)').matches) $('joystick').classList.remove('hidden');
   if (store.get('bday-hint-ack') !== '1') { $('keys').classList.remove('hidden'); document.body.classList.add('hint-on'); }
   let waiting = 0; for (let i = 0; i < unlockedCount(); i++) if (!pulled.has(i)) waiting++;
-  if (waiting) setTimeout(() => toast(`🥬 ${waiting} cabbage chicken${waiting > 1 ? 's are' : ' is'} stuck and waiting for you!`), 600);
+  if (waiting) setTimeout(() => toast(`🥬 ${waiting > 1 ? waiting + ' chouchous are' : 'A chouchou is'} waiting for you`), 600);
 };
 $('btnIntroBell').onclick = askNotify;
 $('btnGotIt').onclick = () => {   // instructions only show until she's read them once
@@ -365,8 +362,8 @@ $('btnCloseLetter').onclick = () => {
 };
 $('btnEndCat').onclick = () => { closeOverlay('ending'); renderCatalogue(); openOverlay('catalogue'); };
 $('btnReplay').onclick = () => location.reload();
-$('introTitle').textContent = `Happy Birthday, ${CONFIG.herName}! 🎂`;
-$('endTitle').textContent = `Happy Birthday, ${CONFIG.herName} 💖`;
+$('introTitle').textContent = `Happy Birthday, ${CONFIG.herName}`;
+$('endTitle').textContent = `Happy Birthday, ${CONFIG.herName}`;
 updateBell();
 
 // debug panel: open the page with ?debug to time-travel while testing
@@ -380,8 +377,8 @@ if (DEBUG) {
   add('Unlock all', () => setOff(startMs + TOTAL * HOUR - Date.now()));
   add('Collect all → finale', () => { for (let i = 0; i < TOTAL; i++) if (!collected.has(i)) freeChicken(i, true); for (const r of roamers) if (r.mode === 'present') receiveFrom(r, true); updateTimeUI(); startFinale(); });
   add('Planet view on/off', () => { overview = !overview; });
-  add('Teleport to a chicken', () => {
-    const b = buried.values().next().value; if (!b) return toast('No stuck chickens right now');
+  add('Teleport to a chouchou', () => {
+    const b = buried.values().next().value; if (!b) return toast('No stuck chouchous right now');
     const d = AY.clone().applyQuaternion(b.quaternion);
     pq.setFromUnitVectors(AY, d).multiply(tq.setFromAxisAngle(AX, -2.2 / R));   // stand just behind it
   });

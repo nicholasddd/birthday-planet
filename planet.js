@@ -320,6 +320,10 @@ export function buildPlanet(seed = 1) {
     const s = sample(d.x, d.y, d.z);
     let h = Math.max(s.h, -0.6);
     for (const b of bridges) if (b.dir.angleTo(d) * R < b.half) h = Math.max(h, 0.1 + 0.42 * Math.cos((b.dir.angleTo(d) * R / (b.half * 2)) * Math.PI));
+    for (const m of mounds) {   // walk up and over the soft grassy mounds
+      const k = (m.d.angleTo(d) * R) / m.r;
+      if (k < 1) h = Math.max(h, m.base + 0.78 * m.r * Math.sqrt(1 - k * k) - 0.55 * m.r);
+    }
     return { h, wet: s.h < WATER && h < 0 };
   }
 
@@ -378,9 +382,9 @@ export function buildPlanet(seed = 1) {
     }
   }
   for (const md of mounds) {
-    placeOnSurface(dummy, md.d, -md.r * 0.55, rng() * 6); dummy.scale.set(md.r, md.r * 0.75, md.r * 1.2); dummy.updateMatrix();
-    balls.push({ m: dummy.matrix.clone(), col: C(0x6aac44) });
-    obstacles.push({ dir: md.d, rad: md.r * 0.9 });
+    md.base = heightAt(md.d);
+    placeOnSurface(dummy, md.d, -md.r * 0.55, rng() * 6); dummy.scale.set(md.r, md.r * 0.75, md.r); dummy.updateMatrix();
+    balls.push({ m: dummy.matrix.clone(), col: C(0x6aac44) });   // no obstacle: she can walk over these
   }
 
   const addInstanced = (geo, mat, items) => {
@@ -517,5 +521,5 @@ export function buildPlanet(seed = 1) {
     i++;
   }
 
-  return { group, flowerDirs, obstacles, cloudPivot, placeOnSurface, standHeight, shadowAll };
+  return { group, flowerDirs, obstacles, cloudPivot, placeOnSurface, standHeight, shadowAll, mounds };
 }

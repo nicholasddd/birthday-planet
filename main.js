@@ -5,6 +5,7 @@ import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js'
 import { OutputPass } from 'three/addons/postprocessing/OutputPass.js';
 import { CONFIG } from './config.js';
 import { buildPlanet, R, mulberry32, randDir } from './planet.js';
+import { makeChibi, animateCharacter } from './characters.js';
 
 // ============================================================ utils
 const TOTAL = 24;
@@ -110,30 +111,6 @@ const heartTex = canvasTex(128, 128, (x) => {
   x.font = '100px serif'; x.textAlign = 'center'; x.textBaseline = 'middle'; x.fillStyle = '#ff5c98'; x.fillText('❤', 64, 70);
 });
 
-function faceTexture(url, skin) {
-  const c = document.createElement('canvas'); c.width = c.height = 256;
-  const x = c.getContext('2d');
-  const col = '#' + new THREE.Color(skin).getHexString();
-  x.fillStyle = col; x.fillRect(0, 0, 256, 256);
-  x.fillStyle = '#3b2a3a';
-  x.beginPath(); x.ellipse(88, 118, 14, 20, 0, 0, Math.PI * 2); x.ellipse(168, 118, 14, 20, 0, 0, Math.PI * 2); x.fill();
-  x.fillStyle = 'rgba(255,120,150,.45)';
-  x.beginPath(); x.ellipse(66, 160, 22, 13, 0, 0, Math.PI * 2); x.ellipse(190, 160, 22, 13, 0, 0, Math.PI * 2); x.fill();
-  x.strokeStyle = '#3b2a3a'; x.lineWidth = 8; x.lineCap = 'round';
-  x.beginPath(); x.arc(128, 150, 30, 0.2 * Math.PI, 0.8 * Math.PI); x.stroke();
-  const tex = new THREE.CanvasTexture(c); tex.colorSpace = THREE.SRGBColorSpace;
-  if (url) {
-    const img = new Image();
-    img.onload = () => {
-      const s = Math.min(img.width, img.height);
-      x.drawImage(img, (img.width - s) / 2, (img.height - s) / 2, s, s, 0, 0, 256, 256);
-      tex.needsUpdate = true;
-    };
-    img.src = url;
-  }
-  return tex;
-}
-
 // ============================================================ planet
 const world = buildPlanet(CONFIG.seed || 1);
 const planetGroup = world.group;
@@ -141,72 +118,14 @@ scene.add(planetGroup);
 const { flowerDirs, obstacles, cloudPivot, placeOnSurface, shadowAll } = world;
 
 // ============================================================ characters
-function makeCharacter(o, faceUrl, isGirl) {
-  const root = new THREE.Group(), rig = new THREE.Group(); root.add(rig);
-  const M = c => new THREE.MeshStandardMaterial({ color: c, roughness: 0.65 });
-  const skinM = M(o.skin), hairM = M(o.hair), outfitM = M(o.outfit), legM = M(o.legs), shoeM = M(o.shoes), accentM = M(o.accent);
-  const parts = {};
-  const legG = new THREE.CapsuleGeometry(0.12, 0.45, 4, 8);
-  for (const s of [-1, 1]) {
-    const hip = new THREE.Group(); hip.position.set(0.15 * s, 0.75, 0);
-    const leg = new THREE.Mesh(legG, legM); leg.position.y = -0.35;
-    const shoe = new THREE.Mesh(new THREE.SphereGeometry(0.14, 10, 8), shoeM); shoe.scale.set(1, 0.6, 1.4); shoe.position.set(0, -0.68, 0.05);
-    hip.add(leg, shoe); rig.add(hip); parts[s < 0 ? 'hipR' : 'hipL'] = hip;
-  }
-  if (isGirl) {
-    const dress = new THREE.Mesh(new THREE.CylinderGeometry(0.22, 0.62, 0.95, 20), outfitM); dress.position.y = 1.08; rig.add(dress);
-    const belt = new THREE.Mesh(new THREE.TorusGeometry(0.25, 0.04, 6, 20), accentM); belt.rotation.x = Math.PI / 2; belt.position.y = 1.35; rig.add(belt);
-  } else {
-    const torso = new THREE.Mesh(new THREE.CylinderGeometry(0.32, 0.3, 0.75, 16), outfitM); torso.position.y = 1.15; rig.add(torso);
-    const hips = new THREE.Mesh(new THREE.CylinderGeometry(0.3, 0.3, 0.2, 16), legM); hips.position.y = 0.8; rig.add(hips);
-  }
-  const neck = new THREE.Mesh(new THREE.CylinderGeometry(0.08, 0.08, 0.2, 8), skinM); neck.position.y = 1.62; rig.add(neck);
-  const sx = isGirl ? 0.3 : 0.4;
-  for (const s of [-1, 1]) {
-    const sh = new THREE.Group(); sh.position.set(sx * s, 1.47, 0);
-    const arm = new THREE.Mesh(new THREE.CapsuleGeometry(0.085, 0.42, 4, 8), isGirl ? skinM : outfitM); arm.position.y = -0.28;
-    const hand = new THREE.Mesh(new THREE.SphereGeometry(0.1, 8, 6), skinM); hand.position.y = -0.58;
-    sh.add(arm, hand); rig.add(sh); parts[s < 0 ? 'shR' : 'shL'] = sh;
-  }
-  const head = new THREE.Group(); head.position.y = 1.98; rig.add(head); parts.head = head;
-  head.add(new THREE.Mesh(new THREE.SphereGeometry(0.42, 20, 16), skinM));
-  const hair = new THREE.Mesh(new THREE.SphereGeometry(isGirl ? 0.47 : 0.45, 20, 16), hairM);
-  hair.position.set(0, 0.06, -0.07); if (!isGirl) hair.scale.set(1, 0.9, 1); head.add(hair);
-  if (isGirl) {
-    const long = new THREE.Mesh(new THREE.CapsuleGeometry(0.36, 0.6, 4, 12), hairM); long.position.set(0, -0.45, -0.2); head.add(long);
-    for (const s of [-1, 1]) {
-      const bow = new THREE.Mesh(new THREE.ConeGeometry(0.12, 0.25, 8), M(0xff5c98));
-      bow.rotation.z = (s * Math.PI) / 2; bow.position.set(0.32 + s * 0.12, 0.4, 0); head.add(bow);
-    }
-  }
-  const face = new THREE.Mesh(new THREE.CircleGeometry(0.34, 40), new THREE.MeshBasicMaterial({ map: faceTexture(faceUrl, o.skin) }));
-  face.position.z = 0.44; head.add(face);
-  shadowAll(root);
-  return { root, rig, parts };
-}
-function animateCharacter(ch, t, walk, pose = 'walk') {
-  const p = ch.parts;
-  if (pose === 'fly') {
-    for (const [k, s] of [['shL', 1], ['shR', -1]]) { p[k].rotation.z = lerp(p[k].rotation.z, s * 2.5, 0.08); p[k].rotation.x = 0; }
-    p.hipL.rotation.x = Math.sin(t * 2) * 0.2; p.hipR.rotation.x = -Math.sin(t * 2) * 0.2;
-    ch.rig.position.y = Math.sin(t * 2) * 0.1;
-    return;
-  }
-  const s = Math.sin(t * 11) * 0.7 * walk;
-  p.hipL.rotation.x = s; p.hipR.rotation.x = -s;
-  p.shL.rotation.x = -s * 0.8; p.shR.rotation.x = s * 0.8;
-  p.shL.rotation.z = 0.15; p.shR.rotation.z = -0.15;
-  ch.rig.position.y = Math.abs(Math.sin(t * 11)) * 0.08 * walk + Math.sin(t * 2) * 0.02;
-}
-
-const girl = makeCharacter(CONFIG.girl, CONFIG.girlFace, true);
+const girl = makeChibi(CONFIG.girl, true);
 scene.add(girl.root);
-const boy = makeCharacter(CONFIG.boy, CONFIG.boyFace, false);
+const boy = makeChibi(CONFIG.boy, false);
 boy.root.visible = false;
 scene.add(boy.root);
 
 // arrow above her head pointing at the nearest flower
-const arrowPivot = new THREE.Group(); arrowPivot.position.y = 3.0; girl.root.add(arrowPivot);
+const arrowPivot = new THREE.Group(); arrowPivot.position.y = 3.1; girl.root.add(arrowPivot);
 {
   const g = new THREE.ConeGeometry(0.22, 0.6, 12); g.rotateX(Math.PI / 2); g.translate(0, 0, 0.9);
   arrowPivot.add(new THREE.Mesh(g, new THREE.MeshStandardMaterial({ color: 0xffe066, emissive: 0xffc400, emissiveIntensity: 1.5 })));
@@ -508,7 +427,7 @@ function updatePlayer(dt, t) {
   if (best) {
     const local = girl.root.worldToLocal(best.position.clone());
     arrowPivot.rotation.y = Math.atan2(local.x, local.z);
-    arrowPivot.position.y = 3.0 + Math.sin(t * 4) * 0.12;
+    arrowPivot.position.y = 3.1 + Math.sin(t * 4) * 0.12;
     if (bestD < 2.0 && canMove) collectFlower(best.userData.i);
   }
 }

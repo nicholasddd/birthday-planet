@@ -505,6 +505,12 @@ export function buildPlanet(seed = 1) {
     fwd.normalize(); if (rng() < 0.15) fwd.negate();
     const right = new THREE.Vector3().crossVectors(up, fwd);
     el.quaternion.setFromRotationMatrix(new THREE.Matrix4().makeBasis(right, up, fwd));
+    // tumble each one differently: most roll onto their side so their profile
+    // (ears, trunk, legs) faces down toward the planet where she can see it
+    const rolls = [Math.PI / 2, -Math.PI / 2, 1.2, -1.2, Math.PI / 2, 0.6, -Math.PI / 2, -0.7];
+    el.rotateZ(rolls[i % rolls.length] + (rng() - 0.5) * 0.3);
+    el.rotateY((rng() - 0.5) * 1.2);
+    el.rotateX((rng() - 0.5) * 0.5);
     el.position.copy(up).multiplyScalar(R + 8 + size * 1.6 + rng() * 3);
     el.userData.bob = rng() * 6;
     cloudPivot.add(el);

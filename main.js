@@ -614,10 +614,10 @@ function updateChickens(dt, t) {
       continue;
     }
     // when she comes close: hop with excitement, run over, and cuddle her
-    r.cool = Math.max(0, (r.cool || 0) - dt);
     const toGirl = girl.root.position.distanceTo(r.group.position);
-    if (r.mode === 'roam' && r.cool <= 0 && toGirl < 4.5 && state === 'play' && !modalOpen) {
-      r.mode = 'excited'; r.t = 0; tone(1046.5, 0, 0.15, 0.08, 'triangle'); tone(1318.5, 0.1, 0.2, 0.08, 'triangle');
+    if (toGirl > 4.8) r.armed = true;   // re-arms as soon as she steps away, so it greets her every time she comes back
+    if (r.mode === 'roam' && r.armed !== false && toGirl < 4.5 && state === 'play' && !modalOpen) {
+      r.mode = 'excited'; r.armed = false; r.t = 0; tone(1046.5, 0, 0.15, 0.08, 'triangle'); tone(1318.5, 0.1, 0.2, 0.08, 'triangle');
     }
     if (r.mode === 'excited' || r.mode === 'approach' || r.mode === 'cuddle') {
       // always turn to face her
@@ -645,8 +645,8 @@ function updateChickens(dt, t) {
         root.scale.set(1 + Math.sin(r.t * 18) * 0.03, 1 - Math.sin(r.t * 18) * 0.04, 1);
         r.heartT = (r.heartT || 0) - dt;
         if (r.heartT <= 0) { r.heartT = 0.45; burst(r.group.localToWorld(V((Math.random() - 0.5) * 0.6, 1.8, 0.3)), 0xffffff, 1, 1.4, 0.5 + Math.random() * 0.3, 1.4, heartTex, false); }
-        if (r.t > 2.8 || toGirl > 4) {
-          r.mode = 'roam'; r.cool = 12; root.rotation.x = 0; root.scale.setScalar(1);
+        if (toGirl > 3.2 && r.t > 1.2) {     // keeps cuddling for as long as she stays close
+          r.mode = 'roam'; root.rotation.x = 0; root.scale.setScalar(1);
           r.q.multiply(tq.setFromAxisAngle(AY, Math.PI * (0.7 + Math.random() * 0.6)));   // turn and wander off
           r.turnT = 1.5; r.turnRate = 0; r.pause = 0;
         }

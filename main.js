@@ -357,7 +357,7 @@ $('btnStart').onclick = () => {
   closeOverlay('intro');
   state = 'play';
   $('hud').classList.remove('hidden');
-  if (matchMedia('(pointer: coarse)').matches) $('joystick').classList.remove('hidden');
+  if (matchMedia('(pointer: coarse)').matches) { $('joystick').classList.remove('hidden'); $('btnJump').classList.remove('hidden'); }
   if (store.get('bday-hint-ack') !== '1') { $('keys').classList.remove('hidden'); document.body.classList.add('hint-on'); }
   let waiting = 0; for (let i = 0; i < unlockedCount(); i++) if (!pulled.has(i)) waiting++;
   if (waiting) setTimeout(() => toast(`🥬 ${waiting > 1 ? waiting + ' chouchous are' : 'A chouchou is'} waiting for you`), 600);
@@ -404,7 +404,8 @@ if (DEBUG) {
   window.__phase = () => finale?.phase;   // for testing
   window.__roamers = () => roamers.map(r => r.mode);
   window.__quality = () => quality.level;
-  window.__three = () => ({ renderer, scene, composer, camera, roamers, particles, smoke });
+  window.__three = () => ({ renderer, scene, composer, camera, roamers, particles, smoke, obstacles, pq, girl });
+  window.__girl = () => ({ h: +girlH.toFixed(2), air: airborne, jump: +jumpHeight().toFixed(2) });
   window.__dist = () => roamers.map(r => +girl.root.position.distanceTo(r.group.position).toFixed(2));
 }
 
@@ -415,9 +416,10 @@ addEventListener('click', e => e.target.closest?.('button')?.blur(), true);
 addEventListener('keydown', e => {
   keys[e.code] = true;
   if (state === 'finale') { if ((e.code === 'Space' || e.code === 'Enter') && !e.repeat) { e.preventDefault(); finaleAction(); } return; }
-  if (e.code === 'Space') { e.preventDefault(); if (!e.repeat) { if (nearHolder) offerLetter(nearHolder); else pullPress(); } }
+  if (e.code === 'Space') { e.preventDefault(); if (!e.repeat) { if (nearHolder) offerLetter(nearHolder); else if (nearChicken) pullPress(); else jump(); } }
 });
 $('btnPull').addEventListener('pointerdown', e => { e.preventDefault(); pullPress(); });
+$('btnJump').addEventListener('pointerdown', e => { e.preventDefault(); jump(); });
 $('btnAsk').addEventListener('pointerdown', e => { e.preventDefault(); if (nearHolder) offerLetter(nearHolder); });
 $('btnReceive').onclick = () => { closeOverlay('offer'); if (offering) receiveFrom(offering); offering = null; };
 $('btnLater').onclick = () => { closeOverlay('offer'); offering = null; toast('🐣 He\'ll wait right here for you'); };
@@ -447,10 +449,29 @@ const tq = new THREE.Quaternion();
 const camLook = V(0, R, 0);
 camera.position.set(0, R + 7, -11);
 let walkAmt = 0, wet = false, girlH = 0, overview = false;
+// jumping: the more chouchous she's collected, the higher she can jump (16 = higher than the trees)
+let vy = 0, airborne = false;
+const GRAVITY = 26;
+const jumpHeight = () => 1.2 + 4.8 * Math.min(collected.size, 24) / 16;
+function jump() {
+  if (state !== 'play' || modalOpen || airborne) return;
+  vy = Math.sqrt(2 * GRAVITY * jumpHeight()); airborne = true;
+  tone(420, 0, 0.12, 0.09, 'sine'); tone(760, 0.05, 0.18, 0.07, 'sine');
+  burst(girl.root.position.clone(), 0xffffff, 5, 2.5, 0.4, 0.5);
+}
+// what she'd be standing on here: the ground, a bridge, a mound, or the top of a tree she's landed on
+function floorAt(d, feet) {
+  let f = world.standHeight(d).h;
+  for (const o of obstacles) {
+    if (o.plat > 0 && feet >= o.top - 0.35 && o.dir.angleTo(d) * R < o.plat) f = Math.max(f, o.top);
+  }
+  return f;
+}
 let faceYaw = 0, faceTarget = 0;   // which way she visually faces, relative to the camera's heading
 
-function blocked(oldDir, newDir, pad = 0.35) {
+function blocked(oldDir, newDir, pad = 0.35, feet = -Infinity) {
   for (const o of obstacles) {
+    if (feet > o.top - 0.15) continue;   // she's above it (mid-jump or standing on it)
     const dn = o.dir.angleTo(newDir) * R;
     if (dn < o.rad + pad && dn < o.dir.angleTo(oldDir) * R) return true;
   }
@@ -473,13 +494,21 @@ function updatePlayer(dt, t) {
     const axis = V(mz, 0, -mx).normalize();
     const nq = pq.clone().multiply(tq.setFromAxisAngle(axis, (len * (wet ? 4 : 7) * dt) / R));
     const od = AY.clone().applyQuaternion(pq), nd = AY.clone().applyQuaternion(nq);
-    if (!blocked(od, nd)) pq.copy(nq);
+    if (!blocked(od, nd, 0.35, girlH)) pq.copy(nq);
     faceTarget = Math.atan2(mx, mz);
   }
   pq.normalize();
   const here = AY.clone().applyQuaternion(pq), stand = world.standHeight(here);
-  wet = stand.wet;
-  girlH = lerp(girlH, stand.h, 1 - Math.exp(-dt * 12));
+  const floor = floorAt(here, girlH);
+  wet = stand.wet && !airborne;
+  if (airborne || girlH > floor + 0.45) {           // in the air: gravity until she lands
+    airborne = true;
+    vy -= GRAVITY * dt; girlH += vy * dt;
+    if (girlH <= floor && vy <= 0) {
+      girlH = floor; vy = 0; airborne = false;
+      if (floor > stand.h + 0.5) burst(here.clone().multiplyScalar(R + girlH), 0x9fd27a, 6, 2, 0.4, 0.5);   // landed on a tree!
+    }
+  } else girlH = lerp(girlH, floor, 1 - Math.exp(-dt * 12));   // walking: follow the ground smoothly
   girl.root.position.copy(here).multiplyScalar(R + girlH);
   if (wet && len > 0.1 && Math.random() < 0.25) burst(here.clone().multiplyScalar(R - 0.1), 0xffffff, 2, 2.5, 0.35, 0.5);
 
@@ -510,7 +539,7 @@ function updatePlayer(dt, t) {
   girl.root.quaternion.copy(pq).multiply(tq.setFromAxisAngle(AY, faceYaw));
   walkAmt = lerp(walkAmt, len > 0.05 ? 1 : 0, 0.15);
   const pulling = nearChicken && nearChicken.userData.pull > 0.02;
-  animateCharacter(girl, t, walkAmt, pulling ? 'pull' : 'walk');
+  animateCharacter(girl, t, walkAmt, pulling ? 'pull' : airborne ? 'jump' : 'walk');
   if (nearChicken) $('pullFill').style.width = `${Math.round(nearChicken.userData.pull * 100)}%`;
 
   // camera follows behind & above, always looking the same way
@@ -519,8 +548,9 @@ function updatePlayer(dt, t) {
     camera.position.lerp(girl.root.localToWorld(V(1.4, 2.3, 4.6)), k * 0.6);
     camLook.lerp(girl.root.localToWorld(V(0, 1.4, 0)), k * 0.6);
   } else {
-    camera.position.lerp((overview ? V(0, R * 2.4, -R * 1.6) : V(0, R + 7, -11)).applyQuaternion(pq), k);
-    camLook.lerp(overview ? V() : V(0, R + 1.5, 4).applyQuaternion(pq), k);
+    const lift = Math.max(0, girlH) * 0.55;
+    camera.position.lerp((overview ? V(0, R * 2.4, -R * 1.6) : V(0, R + 7 + lift, -11)).applyQuaternion(pq), k);
+    camLook.lerp(overview ? V() : V(0, R + 1.5 + lift, 4).applyQuaternion(pq), k);
   }
   camera.up.lerp(AY.clone().applyQuaternion(pq), k).normalize();
   camera.lookAt(camLook);
@@ -576,6 +606,8 @@ function receiveFrom(r, silent = false) {
   collectSound();
   if (collected.size === TOTAL) pendingFinale.v = true;
   setTimeout(() => openLetter(r.i), 400);
+  if (collected.size === 16) setTimeout(() => toast('🌳 You can jump higher than the trees now!'), 1500);
+  else if (collected.size % 4 === 0) setTimeout(() => toast('✨ Your jumps feel a little lighter'), 1500);
 }
 
 function updateChickens(dt, t) {
@@ -836,7 +868,7 @@ function startFinale() {
   if (state === 'finale') return;
   state = 'finale';
   $('hud').classList.add('hidden');   // the finale is a cinematic: no HUD
-  $('joystick').classList.add('hidden');
+  $('joystick').classList.add('hidden'); $('btnJump').classList.add('hidden');
   arrowPivot.visible = false;
   for (const b of buried.values()) planetGroup.remove(b);
   buried.clear();

@@ -362,15 +362,15 @@ export function buildPlanet(seed = 1) {
       trunks.push(m4.clone());
       ball(list, m4, 0, 2.75, 0, 1.15, 1.15, col);
       if (t.fruit) for (const [x, y, z] of [[0.75, 2.0, 0.55], [-0.5, 1.95, 0.75], [0.15, 1.85, -0.85]]) fruits.push(m4.clone().multiply(m5.makeTranslation(x, y, z)));
-      obstacles.push({ dir: t.d, rad: 0.95 * t.s });
+      obstacles.push({ dir: t.d, rad: 0.95 * t.s, top: heightAt(t.d) + 3.9 * t.s, plat: 1.0 * t.s });
     } else if (t.kind === 'topiary') {
       ball(list, m4, 0, 1.0, 0, 1.15, 1.1, col);
       ball(list, m4, 0.05, 2.45, 0, 0.82, 0.8, col);
       ball(list, m4, 0.08, 3.5, 0, 0.55, 0.55, col);
-      obstacles.push({ dir: t.d, rad: 1.1 * t.s });
+      obstacles.push({ dir: t.d, rad: 1.1 * t.s, top: heightAt(t.d) + 4.05 * t.s, plat: 0.5 * t.s });
     } else {
       ball(list, m4, 0, 0.45, 0, 1.0, 0.85, col);
-      obstacles.push({ dir: t.d, rad: 0.95 * t.s });
+      obstacles.push({ dir: t.d, rad: 0.95 * t.s, top: heightAt(t.d) + 1.3 * t.s, plat: 0.85 * t.s });
     }
   }
   for (const md of mounds) {
@@ -424,7 +424,7 @@ export function buildPlanet(seed = 1) {
     }
     palm.scale.setScalar(0.9 + rng() * 0.3);
     shadowAll(palm); bake(palm); placeOnSurface(palm, d, 0, rng() * 6); group.add(palm);
-    obstacles.push({ dir: d, rad: 0.35 });
+    obstacles.push({ dir: d, rad: 0.35, top: heightAt(d) + 3.4, plat: 0 });
   }
 
   // ---------------------------------------------------------------- meadow flowers + grass tufts
@@ -483,7 +483,7 @@ export function buildPlanet(seed = 1) {
     const s = sample(d.x, d.y, d.z); if (s.ld < BEACH) continue;
     const st = new THREE.Mesh(new THREE.SphereGeometry(0.35 + rng() * 0.3, 10, 8), stoneM); st.scale.y = 0.6;
     shadowAll(st); placeOnSurface(st, d, 0.05); group.add(st);
-    obstacles.push({ dir: d, rad: 0.4 });
+    obstacles.push({ dir: d, rad: 0.4, top: heightAt(d) + 0.4, plat: 0.35 });
   }
 
   // ---------------------------------------------------------------- clouds

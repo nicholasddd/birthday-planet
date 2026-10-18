@@ -118,6 +118,12 @@ export function animateCharacter(ch, t, walk, pose = 'walk') {
     ch.rig.position.y = Math.sin(t * 2) * 0.1;
     return;
   }
+  if (pose === 'jump') {            // arms up, knees tucked
+    for (const [k, s] of [['shL', 1], ['shR', -1]]) { p[k].rotation.z = lerp(p[k].rotation.z, s * 1.9, 0.25); p[k].rotation.x = lerp(p[k].rotation.x, 0, 0.25); }
+    p.hipL.rotation.x = lerp(p.hipL.rotation.x, -0.7, 0.25); p.hipR.rotation.x = lerp(p.hipR.rotation.x, -0.5, 0.25);
+    ch.rig.rotation.x *= 0.8; ch.rig.rotation.z *= 0.8; ch.rig.position.y = 0;
+    return;
+  }
   if (pose === 'pull') {            // arms out, leaning back, tugging
     const tug = Math.sin(t * 18) * 0.08;
     for (const [k, s] of [['shL', 1], ['shR', -1]]) { p[k].rotation.x = lerp(p[k].rotation.x, -1.35, 0.3); p[k].rotation.z = 0.15 * s; }

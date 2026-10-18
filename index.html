@@ -58,7 +58,10 @@
   .wt-title { font-family: 'Cormorant Garamond', serif; font-style: italic; font-weight: 600; font-size: 24px; color: var(--rose-deep); margin-bottom: 8px; }
   #cutHint { font-size: 13px; padding: 7px 14px; animation: blink 1.6s ease-in-out infinite; pointer-events: none; bottom: 14%; }
 
-  /* ---------- Joystick ---------- */
+  /* ---------- Joystick + jump button (touch only) ---------- */
+  #btnJump { position: fixed; right: 22px; bottom: max(28px, env(safe-area-inset-bottom)); width: 64px; height: 64px; border-radius: 50%; font-size: 24px; color: var(--rose-deep); pointer-events: auto; touch-action: manipulation; z-index: 11; }
+  #btnJump:active { scale: .92; }
+  @media (pointer: coarse) { #btnPull, #btnAsk { bottom: calc(max(28px, env(safe-area-inset-bottom)) + 76px) !important; } }
   #joystick { position: fixed; left: 22px; bottom: max(22px, env(safe-area-inset-bottom)); width: 100px; height: 100px; border-radius: 50%; background: rgba(255,255,255,.18); border: 1px solid rgba(255,255,255,.55); touch-action: none; pointer-events: auto; }
   #knob { position: absolute; left: 50%; top: 50%; width: 42px; height: 42px; margin: -21px; border-radius: 50%; background: var(--glass-strong); box-shadow: var(--shadow); }
 
@@ -155,9 +158,10 @@
       <button class="iconbtn glass" id="btnSound" title="Sound">🔊</button>
     </div>
   </div>
-  <div class="pill glass bottom hidden" id="keys"><span><span class="pc-text">WASD or arrow keys to move</span><span class="pc-touch">Use the joystick to move</span></span><button id="btnGotIt">Got it</button></div>
+  <div class="pill glass bottom hidden" id="keys"><span><span class="pc-text">WASD to move · SPACE to jump</span><span class="pc-touch">Joystick to move · ⤒ to jump</span></span><button id="btnGotIt">Got it</button></div>
 </div>
 <div id="joystick" class="hidden"><div id="knob"></div></div>
+<button id="btnJump" class="glass hidden" aria-label="Jump">⤒</button>
 <div id="toasts"></div>
 <button id="btnPull" class="glass bottom hidden"><span class="pc-text">Spam <b>SPACE</b> to pull 🥬</span><span class="pc-touch">Tap tap tap to pull 🥬</span><div class="track"><i id="pullFill"></i></div></button>
 <button id="btnAsk" class="glass bottom hidden"><span class="pc-text">💌 <b>SPACE</b> to take his letter</span><span class="pc-touch">💌 Tap to take his letter</span></button>

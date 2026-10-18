@@ -358,6 +358,7 @@ const collectSound = () => [523.3, 659.3, 784, 1046.5, 1318.5].forEach((f, k) =>
 
 // ============================================================ UI
 let state = 'intro';
+let introLock = false;   // true until she's read the controls on her first visit
 let modalOpen = false;
 let lastUnlocked = unlockedCount();
 const pendingFinale = { v: false };
@@ -450,7 +451,7 @@ function renderCatalogue() {
 function openOverlay(id) { $(id).classList.add('open'); modalOpen = true; }
 function closeOverlay(id) {
   $(id).classList.remove('open');
-  modalOpen = ['intro', 'offer', 'letter', 'catalogue', 'ending'].some(k => $(k).classList.contains('open'));
+  modalOpen = ['intro', 'controls', 'firstSeen', 'offer', 'letter', 'catalogue', 'ending'].some(k => $(k).classList.contains('open'));
 }
 const known = () => pulled.size > 0;   // she only learns what a chouchou is when she pulls out the first one
 {
@@ -489,15 +490,30 @@ $('btnStart').onclick = () => {
   state = 'play'; diveUntil = lastT + 3.2;
   $('hud').classList.remove('hidden');
   if (matchMedia('(pointer: coarse)').matches) { $('joystick').classList.remove('hidden'); $('btnJump').classList.remove('hidden'); }
-  if (store.get('bday-hint-ack') !== '1') { $('keys').classList.remove('hidden'); document.body.classList.add('hint-on'); }
+  // first visit: show the controls once she's landed; she can't move until she's read them
+  if (store.get('bday-hint-ack') !== '1') { introLock = true; setTimeout(() => openOverlay('controls'), 2600); }
   let waiting = 0; for (let i = 0; i < unlockedCount(); i++) if (!pulled.has(i)) waiting++;
   if (waiting) setTimeout(() => toast(known() ? `🥬 ${waiting > 1 ? waiting + ' chouchous are' : 'A chouchou is'} waiting for you` : '✨ Something is glowing on the planet…'), 2600);
 };
 $('btnIntroBell').onclick = askNotify;
-$('btnGotIt').onclick = () => {   // instructions only show until she's read them once
-  store.set('bday-hint-ack', '1');
-  $('keys').classList.add('hidden'); document.body.classList.remove('hint-on');
-};
+$('btnControlsOk').onclick = () => { store.set('bday-hint-ack', '1'); introLock = false; closeOverlay('controls'); };
+$('btnHelp').onclick = () => openOverlay('controls');
+$('btnFsOk').onclick = () => closeOverlay('firstSeen');
+// Enter / Space dismiss these little cards from the keyboard
+addEventListener('keydown', e => {
+  if (e.code !== 'Enter' && e.code !== 'Space') return;
+  if ($('controls').classList.contains('open')) { e.preventDefault(); e.stopImmediatePropagation(); $('btnControlsOk').click(); }
+  else if ($('firstSeen').classList.contains('open') && !$('btnFsOk').classList.contains('hidden')) { e.preventDefault(); e.stopImmediatePropagation(); $('btnFsOk').click(); }
+}, true);
+// the first time she comes near something glowing: "What's that?"
+function firstEncounter(b) {
+  store.set('bday-first-seen', '1');
+  faceToward(b.position);
+  $('fsStep2').classList.add('hidden'); $('btnFsOk').classList.add('hidden');
+  openOverlay('firstSeen');
+  tone(660, 0, 0.25, 0.06, 'sine'); tone(990, 0.18, 0.4, 0.05, 'sine');
+  setTimeout(() => { $('fsStep2').classList.remove('hidden'); $('btnFsOk').classList.remove('hidden'); }, 1600);
+}
 $('btnBell').onclick = askNotify;
 $('btnSound').onclick = () => { muted = !muted; store.set('bday-muted', muted ? '1' : '0'); $('btnSound').textContent = muted ? '🔇' : '🔊'; music?.setMuted(muted); };
 $('btnSound').textContent = muted ? '🔇' : '🔊';
@@ -668,7 +684,7 @@ if (DEBUG) {
     const d = b.position.clone().normalize();
     pq.setFromUnitVectors(AY, d).multiply(tq.setFromAxisAngle(AX, -3.2 / R));   // stand just behind it
   });
-  add('Reset everything', () => { store.set('bday-collected', '[]'); store.set('bday-pulled', '[]'); store.set('bday-offset', '0'); store.set('bday-hint-ack', '0'); location.reload(); });
+  add('Reset everything', () => { store.set('bday-collected', '[]'); store.set('bday-pulled', '[]'); store.set('bday-offset', '0'); store.set('bday-hint-ack', '0'); store.set('bday-first-seen', '0'); store.set('bday-unlocked', '0'); location.reload(); });
   document.body.appendChild(d);
   window.__phase = () => finale?.phase;   // for testing
   window.__roamers = () => roamers.map(r => r.mode);
@@ -776,7 +792,7 @@ function pickShot(camAt, target) {
   return best;
 }
 function updatePlayer(dt, t) {
-  const canMove = state === 'play' && !modalOpen;
+  const canMove = state === 'play' && !modalOpen && !introLock;
   // camera-relative movement: W/S forward/back, A/D left/right. The camera never turns;
   // she simply runs (and faces) whichever way you push.
   let mx = 0, mz = 0;
@@ -817,6 +833,7 @@ function updatePlayer(dt, t) {
     const d = b.position.distanceTo(girl.root.position);
     if (d < bestD) { bestD = d; best = b; }
   }
+  if (best && bestD < 5.5 && canMove && !known() && store.get('bday-first-seen') !== '1') firstEncounter(best);
   nearChicken = best && bestD < 2.8 && canMove ? best : null;
   $('btnPull').classList.toggle('hidden', !nearChicken);
   nearHolder = null;

@@ -140,6 +140,17 @@
   .btn.soft:hover { color: var(--ink); }
   .big-emoji { font-size: 34px; line-height: 1; margin-bottom: 6px; }
 
+  /* keyboard guide */
+  kbd { display: inline-grid; place-items: center; min-width: 28px; height: 28px; padding: 0 7px; border-radius: 7px; border: 1px solid rgba(90, 74, 94, .22); border-bottom-width: 3px; background: #fff; font-family: 'Quicksand', sans-serif; font-size: 12px; font-weight: 700; color: var(--ink); text-transform: uppercase; }
+  kbd.wide { min-width: 96px; letter-spacing: .1em; font-size: 11px; }
+  .keys-guide { display: flex; flex-direction: column; gap: 12px; margin: 16px 0 4px; text-align: left; }
+  .krow { display: grid; grid-template-columns: 112px 1fr; align-items: center; gap: 14px; font-size: 13px; color: var(--ink); }
+  .kcaps { display: flex; justify-content: center; gap: 4px; }
+  .wasd { display: flex; flex-direction: column; align-items: center; gap: 3px; } .wasd > span { display: flex; gap: 3px; }
+  .fs-step { margin-top: 14px; animation: pop .5s cubic-bezier(.2,1.3,.4,1); }
+  .fs-step .krow { justify-content: center; text-align: left; }
+  #firstSeen .card, #controls .card { width: min(380px, 100%); }
+
   /* Letter: aged parchment over a soft, blurred close-up of the planet */
   #letter { background: radial-gradient(ellipse at center, rgba(90, 60, 30, .12), rgba(60, 40, 25, .38)); backdrop-filter: blur(5px) saturate(.9); -webkit-backdrop-filter: blur(5px) saturate(.9); display: flex; flex-direction: column; justify-content: center; align-items: center; gap: 14px; }
   .letter-wrap { position: relative; width: min(560px, 88vw, 78dvh); transform: rotate(-1.6deg) translateY(10px); transition: transform .5s cubic-bezier(.2,1.2,.4,1); }
@@ -207,12 +218,12 @@
       <div class="pill glass" id="status">…</div>
     </div>
     <div class="right">
+      <button class="iconbtn glass" id="btnHelp" title="Controls">?</button>
       <button class="iconbtn glass" id="btnCat" title="Your chouchous">📖<span class="badge" id="catBadge">0</span></button>
       <button class="iconbtn glass" id="btnBell" title="Reminders">🔕</button>
       <button class="iconbtn glass" id="btnSound" title="Sound">🔊</button>
     </div>
   </div>
-  <div class="pill glass bottom hidden" id="keys"><span><span class="pc-text">WASD to move · ← → to look around · SPACE to jump</span><span class="pc-touch">Joystick to move · ⤒ to jump</span></span><button id="btnGotIt">Got it</button></div>
 </div>
 <div id="joystick" class="hidden"><div id="knob"></div></div>
 <button id="btnJump" class="glass hidden" aria-label="Jump">⤒</button>
@@ -286,6 +297,30 @@
       </div>
     </div>
     <svg class="letter-flower" id="letterFlower" viewBox="0 0 120 300"></svg>
+  </div>
+</div>
+
+<div id="controls" class="overlay">
+  <div class="card">
+    <div class="eyebrow">before you go</div>
+    <h1>How to explore</h1>
+    <div class="keys-guide">
+      <div class="krow"><span class="kcaps"><span class="wasd"><kbd>W</kbd><span><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd></span></span></span><span>walk around</span></div>
+      <div class="krow"><span class="kcaps"><kbd>←</kbd><kbd>→</kbd></span><span>look around</span></div>
+      <div class="krow"><span class="kcaps"><kbd class="wide">space</kbd></span><span>jump — or do something, when there's something nearby</span></div>
+      <div class="krow"><span class="kcaps"><kbd>📖</kbd></span><span>everything you've found, top right</span></div>
+    </div>
+    <div class="actions"><button class="btn" id="btnControlsOk">Let's explore</button></div>
+  </div>
+</div>
+
+<div id="firstSeen" class="overlay">
+  <div class="card">
+    <div class="big-emoji">👀</div>
+    <h1>What's that?</h1>
+    <p>Looks like something is stuck in the ground…</p>
+    <div id="fsStep2" class="fs-step hidden"><div class="krow"><span class="kcaps"><kbd class="wide">space</kbd></span><span>press it again and again to pull it out</span></div></div>
+    <div class="actions"><button class="btn hidden" id="btnFsOk">Let's pull!</button></div>
   </div>
 </div>
 

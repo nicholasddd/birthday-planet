@@ -449,10 +449,10 @@ const tq = new THREE.Quaternion();
 const camLook = V(0, R, 0);
 camera.position.set(0, R + 7, -11);
 let walkAmt = 0, wet = false, girlH = 0, overview = false;
-// jumping: the more chouchous she's collected, the higher she can jump (16 = higher than the trees)
+// jumping: a simple little hop
 let vy = 0, airborne = false;
 const GRAVITY = 26;
-const jumpHeight = () => 1.2 + 4.8 * Math.min(collected.size, 24) / 16;
+const jumpHeight = () => 1.2;
 function jump() {
   if (state !== 'play' || modalOpen || airborne) return;
   vy = Math.sqrt(2 * GRAVITY * jumpHeight()); airborne = true;
@@ -639,8 +639,6 @@ function receiveFrom(r, silent = false) {
   collectSound();
   if (collected.size === TOTAL) pendingFinale.v = true;
   setTimeout(() => openLetter(r.i), 400);
-  if (collected.size === 16) setTimeout(() => toast('🌳 You can jump higher than the trees now!'), 1500);
-  else if (collected.size % 4 === 0) setTimeout(() => toast('✨ Your jumps feel a little lighter'), 1500);
 }
 
 function updateChickens(dt, t) {

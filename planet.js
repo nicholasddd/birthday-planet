@@ -338,7 +338,8 @@ export function buildPlanet(seed = 1) {
   const stage = new THREE.Group();
   {
     const r = STAGE_R, h = STAGE_H + 0.35;   // a little of it is sunk into the ground
-    const prof = [[0, h], [r - 0.55, h], [r - 0.2, h - 0.08], [r, h - 0.35], [r + 0.12, 0.25], [r + 0.2, -0.4]].map(([x, y]) => new THREE.Vector2(x, y));
+    // profile runs bottom → top so the lathe's faces point outward/upward (the top must face the sky)
+    const prof = [[r + 0.2, -0.4], [r + 0.12, 0.25], [r, h - 0.35], [r - 0.2, h - 0.08], [r - 0.55, h], [0, h]].map(([x, y]) => new THREE.Vector2(x, y));
     const g = new THREE.LatheGeometry(prof, 72);
     const pos = g.attributes.position;
     for (let i = 0; i < pos.count; i++) {   // irregular, hand-hewn outline

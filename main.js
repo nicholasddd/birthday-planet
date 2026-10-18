@@ -512,18 +512,8 @@ function storyNext() {
     $('storyNext').classList.remove('show'); setTimeout(() => $('storyNext').classList.add('show'), 50);
   } else {
     $('storyNext').classList.add('hidden'); $('storyLine').classList.remove('show');
-    $('gate').classList.remove('hidden'); setTimeout(() => $('gateInput').focus(), 100);
+    $('gate').classList.remove('hidden'); setTimeout(() => dials[0].el.focus(), 100);
   }
-}
-const MONTHS = ['jan', 'feb', 'mar', 'apr', 'may', 'jun', 'jul', 'aug', 'sep', 'oct', 'nov', 'dec'];
-function isHerBirthday(text) {
-  const t = text.toLowerCase(), nums = (t.match(/\d+/g) || []).map(Number);
-  const mi = MONTHS.findIndex(m => t.includes(m));
-  const { day, month } = CONFIG.birthday;
-  if (mi >= 0) return nums.includes(day) && mi + 1 === month;   // "18 October", "Oct 18th"
-  if (nums.length >= 3 && nums[0] > 31) return nums[1] === month && nums[2] === day;   // 1999-10-18
-  if (nums.length < 2) return false;
-  return (nums[0] === day && nums[1] === month) || (nums[0] === month && nums[1] === day);   // 18/10 or 10/18
 }
 function welcome(back) {
   $('gate').classList.add('hidden'); $('storyNext').classList.add('hidden');
@@ -532,13 +522,80 @@ function welcome(back) {
   if (!back) { tone(659.3, 0, 1.2, 0.08); tone(880, 0.25, 1.2, 0.08); tone(1318.5, 0.5, 1.6, 0.07); }
 }
 $('storyNext').onclick = () => { try { actx ??= new (window.AudioContext || window.webkitAudioContext)(); } catch {} storyNext(); };
+// ---- the combination padlock: four scrolling dials, DD / MM
+const ROW = 30;   // px per digit on a dial
+const dials = [...document.querySelectorAll('#lock .dial')].map((el, i) => {
+  const strip = document.createElement('div'); strip.className = 'strip';
+  for (let r = 0; r < 3; r++) for (let n = 0; n < 10; n++) strip.insertAdjacentHTML('beforeend', `<span>${n}</span>`);
+  el.appendChild(strip);
+  return { el, strip, i, pos: 10 };   // pos indexes the middle copy of 0–9; the dial shows the digit at pos
+});
+const dialValue = d => ((d.pos % 10) + 10) % 10;
+function renderDial(d, instant) {
+  d.strip.classList.toggle('jump', !!instant);
+  d.strip.style.transform = `translateY(${(1 - d.pos) * ROW - 12}px)`;   // centre the current digit in the 66px window
+}
+function turn(d, step) {
+  if (unlocking) return;
+  d.pos += step;
+  renderDial(d);
+  tone(1500 + Math.random() * 300, 0, 0.03, 0.05, 'square');   // little click
+  clearTimeout(d.wrap);
+  d.wrap = setTimeout(() => { if (d.pos < 5 || d.pos > 24) { d.pos = 10 + dialValue(d); renderDial(d, true); } }, 260);   // seamless wrap
+  $('gateMsg').textContent = '';
+  checkLock();
+}
+let unlocking = false;
+function checkLock() {
+  const [a, b, c, e] = dials.map(dialValue), day = a * 10 + b, month = c * 10 + e;
+  if (day === CONFIG.birthday.day && month === CONFIG.birthday.month) {
+    unlocking = true;
+    setTimeout(() => {
+      $('lock').classList.add('open');
+      tone(784, 0, 0.6, 0.08, 'triangle'); tone(1046.5, 0.12, 0.7, 0.08, 'triangle'); tone(1568, 0.26, 0.9, 0.07, 'triangle');
+      store.set('bday-unlocked', '1');
+      setTimeout(() => welcome(false), 1100);
+    }, 250);
+  }
+}
+for (const d of dials) {
+  renderDial(d, true);
+  let acc = 0, dragY = null;
+  let lastWheel = 0;
+  d.el.addEventListener('wheel', e => {
+    e.preventDefault();
+    const now = performance.now();
+    if (Math.abs(e.deltaY) >= 50) {   // a mouse-wheel notch: exactly one click
+      if (now - lastWheel > 70) { turn(d, Math.sign(e.deltaY)); lastWheel = now; }
+      return;
+    }
+    acc += e.deltaY;                  // trackpad: small deltas add up
+    if (Math.abs(acc) >= 45 && now - lastWheel > 60) { turn(d, Math.sign(acc)); acc = 0; lastWheel = now; }
+  }, { passive: false });
+  d.el.addEventListener('pointerdown', e => { d.el.setPointerCapture(e.pointerId); dragY = e.clientY; d.dragged = false; d.el.focus(); });
+  d.el.addEventListener('pointermove', e => {
+    if (dragY === null) return;
+    const dy = e.clientY - dragY;
+    if (Math.abs(dy) >= 22) { turn(d, dy > 0 ? -1 : 1); dragY = e.clientY; d.dragged = true; }   // drag down shows the smaller number
+  });
+  d.el.addEventListener('pointerup', e => {
+    if (!d.dragged) { const r = d.el.getBoundingClientRect(); turn(d, e.clientY < r.top + r.height / 2 ? -1 : 1); }   // click top/bottom half
+    dragY = null;
+  });
+  d.el.addEventListener('keydown', e => {
+    if (e.key === 'ArrowUp') { turn(d, -1); e.preventDefault(); }
+    else if (e.key === 'ArrowDown') { turn(d, 1); e.preventDefault(); }
+    else if (e.key === 'ArrowLeft') { dials[Math.max(0, d.i - 1)].el.focus(); e.preventDefault(); }
+    else if (e.key === 'ArrowRight') { dials[Math.min(3, d.i + 1)].el.focus(); e.preventDefault(); }
+    else if (/^[0-9]$/.test(e.key)) { turn(d, Number(e.key) - dialValue(d)); dials[Math.min(3, d.i + 1)].el.focus(); }
+    e.stopPropagation();
+  });
+}
 $('gate').onsubmit = e => {
   e.preventDefault();
-  if (isHerBirthday($('gateInput').value)) { store.set('bday-unlocked', '1'); welcome(false); }
-  else {
-    $('gateMsg').textContent = $('gateInput').value.trim() ? 'Hmm… the planet doesn\'t recognise that date.' : 'The planet is waiting…';
-    $('gate').classList.remove('shake'); void $('gate').offsetWidth; $('gate').classList.add('shake');
-  }
+  if (unlocking) return;
+  $('gateMsg').textContent = 'Hmm… the planet doesn\'t recognise that date.';
+  $('gate').classList.remove('shake'); void $('gate').offsetWidth; $('gate').classList.add('shake');
 };
 addEventListener('keydown', e => {   // Enter also moves the story along
   if (e.code === 'Enter' && $('intro').classList.contains('open') && !$('storyNext').classList.contains('hidden')) $('storyNext').click();
@@ -578,7 +635,7 @@ const keys = {};
 // buttons drop focus after a click, so SPACE never re-presses them by accident
 addEventListener('click', e => e.target.closest?.('button')?.blur(), true);
 addEventListener('keydown', e => {
-  if (e.target.tagName === 'INPUT') return;
+  if (e.target.tagName === 'INPUT' || e.target.classList?.contains('dial')) return;
   keys[e.code] = true;
   if (state === 'finale') { if ((e.code === 'Space' || e.code === 'Enter') && !e.repeat) { e.preventDefault(); finaleAction(); } return; }
   if (e.code === 'Space') { e.preventDefault(); if (!e.repeat) spaceAction(); }

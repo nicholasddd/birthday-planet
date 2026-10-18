@@ -192,9 +192,116 @@ function addRoamer(i, q, ch, popping) {
   return r;
 }
 function placeRoamer(r) {
-  const d = AY.clone().applyQuaternion(r.q);
-  r.group.position.copy(d).multiplyScalar(R + world.standHeight(d).h);
+  const d = AY.clone().applyQuaternion(r.q), st = world.standHeight(d);
+  // chouchous heading out to (or floating in) the deep water bob on the surface instead of walking the lake bed
+  const floating = r.home?.float && st.wet && (r.mode === 'float' || r.mode === 'toWater');
+  const h = floating ? world.lake.water - 0.32 + Math.sin(lastT * 2 + r.phase) * 0.05 : st.h;
+  r.group.position.copy(d).multiplyScalar(R + h);
   r.group.quaternion.copy(r.q);
+}
+
+// ============================================================ the waterhole
+// Up to 8 chouchous gather at the lagoon: some along the shore, some floating in the deep middle.
+function lakeSpot(angle, dist) {
+  const c = world.lake.c, t1 = V(0, 1, 0).cross(c).normalize(), t2 = c.clone().cross(t1).normalize();
+  const T = t1.multiplyScalar(Math.cos(angle)).addScaledVector(t2, Math.sin(angle));
+  return c.clone().applyAxisAngle(c.clone().cross(T).normalize(), dist);
+}
+const WATER_SPOTS = [
+  ...[0, 1, 2, 3, 4].map(k => ({ dir: lakeSpot(k * 1.2566 + 0.3, world.lake.r * 1.02), float: false, taken: null })),
+  ...[0, 1, 2].map(k => ({ dir: lakeSpot(k * 2.1 + 1, world.lake.r * (0.18 + 0.14 * k)), float: true, taken: null })),
+];
+let waterT = 2;
+function sendToWater(r, spot, teleport = false) {
+  spot.taken = r; r.home = spot; r.t = 0;
+  if (teleport) { r.q.setFromUnitVectors(AY, spot.dir).multiply(tq.setFromAxisAngle(AY, Math.random() * 6)); r.mode = spot.float ? 'float' : 'water'; placeRoamer(r); }
+  else r.mode = 'toWater';
+}
+function updateWaterhole(dt) {
+  waterT -= dt; if (waterT > 0) return; waterT = 1.5;
+  const free = WATER_SPOTS.filter(sp => !sp.taken); if (!free.length) return;   // 8 there already: the rest stay where they are
+  const cands = roamers.filter(r => r.mode === 'roam' && !r.home); if (!cands.length) return;
+  sendToWater(cands[Math.floor(Math.random() * cands.length)], free[Math.floor(Math.random() * free.length)]);
+}
+
+// ============================================================ the stone stage's carved chouchou
+{
+  const st = makeCabbageChicken(new THREE.Color(0xffffff));
+  const statueM = softify(new THREE.MeshStandardMaterial({ color: 0xb6b0bc, roughness: 0.92 }), { scale: 1.1, strength: 0.6 });
+  const shells = []; st.root.traverse(o => { if (o.userData.fuzzShell) shells.push(o); });
+  shells.forEach(o => o.parent.remove(o));
+  st.envelope.visible = false; st.flower.visible = false;
+  st.mouth.parent.remove(st.mouth);
+  st.root.traverse(o => { if (o.isMesh) { o.material = statueM; o.castShadow = true; o.receiveShadow = true; } });
+  bake(st.root);   // now it's all one piece of stone
+  const plinth = new THREE.Mesh(new THREE.CylinderGeometry(1.9, 2.1, 0.35, 28), statueM);
+  plinth.position.y = 0.17; plinth.castShadow = plinth.receiveShadow = true;
+  const statue = new THREE.Group(); statue.add(plinth, st.root);
+  st.root.position.y = 0.3; st.root.scale.setScalar(2.4);
+  statue.position.set(0, 1.25, -world.stage.r * 0.42);
+  world.stage.group.add(statue);
+  world.stage.group.updateMatrixWorld(true);
+  const sp = statue.getWorldPosition(V()).normalize();
+  obstacles.push({ dir: sp, rad: 1.9, top: world.stage.top + 4.2, plat: 0 });
+}
+
+// ============================================================ berries
+let berries = Number(store.get('bday-berries') || 0);
+const flying = [];
+const berryGeo = new THREE.SphereGeometry(0.16, 12, 8);
+const berryMat = new THREE.MeshPhysicalMaterial({ color: 0xe0322a, roughness: 0.3, clearcoat: 0.6 });
+const ZERO = new THREE.Matrix4().makeScale(0, 0, 0);
+let actionPose = null;   // { pose, t } — reaching up to pick, or holding a berry out
+function updateBerryHUD(bump) {
+  $('berryPill').classList.toggle('hidden', berries <= 0);
+  $('berryCount').textContent = berries;
+  if (bump) { $('berryPill').classList.remove('bump'); void $('berryPill').offsetWidth; $('berryPill').classList.add('bump'); }
+  store.set('bday-berries', String(berries));
+}
+// a berry flying along a little arc; `to` can be a function so it follows a moving target
+function flyBerry(from, to, dur, onDone) {
+  const m = new THREE.Mesh(berryGeo, berryMat); m.position.copy(from); scene.add(m);
+  flying.push({ m, from: from.clone(), to, dur, t: 0, onDone });
+}
+function updateBerries(dt) {
+  for (let k = flying.length - 1; k >= 0; k--) {
+    const f = flying[k]; f.t += dt;
+    const p = Math.min(1, f.t / f.dur), to = typeof f.to === 'function' ? f.to() : f.to;
+    f.m.position.lerpVectors(f.from, to, ease(p)).addScaledVector(to.clone().normalize(), Math.sin(Math.PI * p) * 0.9);
+    if (p >= 1) { scene.remove(f.m); flying.splice(k, 1); f.onDone?.(); }
+  }
+  // picked berries grow back after a while
+  for (const tr of world.berryTrees) for (const sl of tr.slots) if (!sl.present && (sl.regrow -= dt) <= 0) {
+    sl.present = true; world.fruitI.setMatrixAt(sl.idx, sl.base); world.fruitI.instanceMatrix.needsUpdate = true;
+  }
+  if (actionPose && (actionPose.t -= dt) <= 0) actionPose = null;
+}
+const handPos = () => girl.root.localToWorld(V(0, 1.45, 0.5));
+function faceToward(p) {
+  const rel = p.clone().sub(girl.root.position).applyQuaternion(pq.clone().invert());
+  faceTarget = Math.atan2(rel.x, rel.z);
+}
+function pickBerry(tree) {
+  const sl = tree.slots.find(x => x.present); if (!sl) return;
+  sl.present = false; sl.regrow = 45 + Math.random() * 30;
+  world.fruitI.setMatrixAt(sl.idx, ZERO); world.fruitI.instanceMatrix.needsUpdate = true;
+  actionPose = { pose: 'reach', t: 0.55 };
+  faceToward(sl.pos);
+  burst(sl.pos, 0x8fd06a, 5, 2, 0.35, 0.6, glowTex, false);
+  tone(880, 0, 0.1, 0.06, 'triangle');
+  flyBerry(sl.pos, handPos, 0.5, () => { berries++; updateBerryHUD(true); tone(1320, 0, 0.12, 0.07, 'triangle'); });
+}
+function feed(r) {
+  if (berries <= 0) return;
+  berries--; updateBerryHUD(true);
+  actionPose = { pose: 'offer', t: 0.75 };
+  faceToward(r.group.position);
+  r.feeding = true;
+  flyBerry(handPos(), () => r.group.localToWorld(V(0, 0.66, 0.75)), 0.45, () => {
+    r.feeding = false; r.munch = 1.8;
+    tone(520, 0, 0.08, 0.08, 'square'); tone(440, 0.14, 0.08, 0.08, 'square'); tone(600, 0.3, 0.12, 0.06, 'triangle');
+    burst(r.group.localToWorld(V(0, 1.7, 0.3)), 0xffffff, 3, 1.6, 0.6, 1.3, heartTex, false);
+  });
 }
 // ============================================================ particles
 const particles = [];
@@ -404,7 +511,7 @@ if (DEBUG) {
   window.__phase = () => finale?.phase;   // for testing
   window.__roamers = () => roamers.map(r => r.mode);
   window.__quality = () => quality.level;
-  window.__three = () => ({ renderer, scene, composer, camera, roamers, particles, smoke, obstacles, pq, girl });
+  window.__three = () => ({ renderer, scene, composer, camera, roamers, particles, smoke, obstacles, pq, girl, world, WATER_SPOTS });
   window.__girl = () => ({ h: +girlH.toFixed(2), air: airborne, jump: +jumpHeight().toFixed(2) });
   window.__dist = () => roamers.map(r => +girl.root.position.distanceTo(r.group.position).toFixed(2));
 }
@@ -416,10 +523,19 @@ addEventListener('click', e => e.target.closest?.('button')?.blur(), true);
 addEventListener('keydown', e => {
   keys[e.code] = true;
   if (state === 'finale') { if ((e.code === 'Space' || e.code === 'Enter') && !e.repeat) { e.preventDefault(); finaleAction(); } return; }
-  if (e.code === 'Space') { e.preventDefault(); if (!e.repeat) { if (nearHolder) offerLetter(nearHolder); else if (nearChicken) pullPress(); else jump(); } }
+  if (e.code === 'Space') { e.preventDefault(); if (!e.repeat) spaceAction(); }
 });
 $('btnPull').addEventListener('pointerdown', e => { e.preventDefault(); pullPress(); });
+// SPACE does whatever makes sense where she is: take a letter, pull, feed, pick — or just jump
+function spaceAction() {
+  if (nearHolder) offerLetter(nearHolder);
+  else if (nearChicken) pullPress();
+  else if (nearFeed) feed(nearFeed);
+  else if (nearBerry) pickBerry(nearBerry);
+  else jump();
+}
 $('btnJump').addEventListener('pointerdown', e => { e.preventDefault(); jump(); });
+$('btnAct').addEventListener('pointerdown', e => { e.preventDefault(); spaceAction(); });
 $('btnAsk').addEventListener('pointerdown', e => { e.preventDefault(); if (nearHolder) offerLetter(nearHolder); });
 $('btnReceive').onclick = () => { closeOverlay('offer'); if (offering) receiveFrom(offering); offering = null; };
 $('btnLater').onclick = () => { closeOverlay('offer'); offering = null; toast('🐣 He\'ll wait right here for you'); };
@@ -478,7 +594,7 @@ function blocked(oldDir, newDir, pad = 0.35, feet = -Infinity) {
   return false;
 }
 
-let nearChicken = null, nearHolder = null, offering = null;
+let nearChicken = null, nearHolder = null, offering = null, nearFeed = null, nearBerry = null, actText = '';
 let popFocus = null, camSide = 0, lastT = 0;   // close-up camera for pulling
 // candidate shots (sideways, along the pull) — 3/4 views first, then side-on, then from behind
 const SHOTS = [[5, -3.6], [-5, -3.6], [6.2, 0.4], [-6.2, 0.4], [2.6, -5.8], [-2.6, -5.8], [0, -6.4], [3.5, 3.5], [-3.5, 3.5]];
@@ -510,7 +626,7 @@ function updatePlayer(dt, t) {
     const axis = V(mz, 0, -mx).normalize();
     const nq = pq.clone().multiply(tq.setFromAxisAngle(axis, (len * (wet ? 4 : 7) * dt) / R));
     const od = AY.clone().applyQuaternion(pq), nd = AY.clone().applyQuaternion(nq);
-    if (!blocked(od, nd, 0.35, girlH)) pq.copy(nq);
+    if (!blocked(od, nd, 0.35, girlH) && !world.isDeep(nd)) pq.copy(nq);   // the lagoon's middle is too deep
     faceTarget = Math.atan2(mx, mz);
   }
   pq.normalize();
@@ -539,6 +655,27 @@ function updatePlayer(dt, t) {
   nearHolder = null;
   if (canMove && !nearChicken) for (const r of roamers) if (r.mode === 'present' && r.group.position.distanceTo(girl.root.position) < 3) nearHolder = r;
   $('btnAsk').classList.toggle('hidden', !nearHolder);
+  // berry trees to pick from, and chouchous to feed
+  nearFeed = null; nearBerry = null;
+  if (canMove && !nearChicken && !nearHolder && !actionPose) {
+    if (berries > 0) {
+      let bd = 2.8;
+      for (const r of roamers) {
+        if (!['roam', 'water', 'toWater', 'excited', 'approach', 'cuddle'].includes(r.mode) || r.munch > 0 || r.feeding) continue;
+        const d = r.group.position.distanceTo(girl.root.position); if (d < bd) { bd = d; nearFeed = r; }
+      }
+    }
+    if (!nearFeed) for (const tr of world.berryTrees) {
+      if (tr.dir.angleTo(here) * R < 2.2 + tr.s && tr.slots.some(x => x.present)) { nearBerry = tr; break; }
+    }
+  }
+  const txt = nearFeed ? 'feed' : nearBerry ? 'pick' : '';
+  if (txt !== actText) {
+    actText = txt;
+    $('btnAct').classList.toggle('hidden', !txt);
+    if (txt === 'feed') $('btnAct').innerHTML = '<span class="pc-text">🍒 <b>SPACE</b> to feed him</span><span class="pc-touch">🍒 Tap to feed him</span>';
+    if (txt === 'pick') $('btnAct').innerHTML = '<span class="pc-text">🍒 <b>SPACE</b> to pick a berry</span><span class="pc-touch">🍒 Tap to pick a berry</span>';
+  }
   arrowPivot.visible = !!best && bestD > 6;
   if (best) {
     const local = girl.root.worldToLocal(best.position.clone());
@@ -555,7 +692,7 @@ function updatePlayer(dt, t) {
   girl.root.quaternion.copy(pq).multiply(tq.setFromAxisAngle(AY, faceYaw));
   walkAmt = lerp(walkAmt, len > 0.05 ? 1 : 0, 0.15);
   const pulling = nearChicken && nearChicken.userData.pull > 0.02;
-  animateCharacter(girl, t, walkAmt, pulling ? 'pull' : airborne ? 'jump' : 'walk');
+  animateCharacter(girl, t, walkAmt, pulling ? 'pull' : actionPose ? actionPose.pose : airborne ? 'jump' : 'walk');
   if (nearChicken) $('pullFill').style.width = `${Math.round(nearChicken.userData.pull * 100)}%`;
 
   // camera follows behind & above, always looking the same way
@@ -682,10 +819,24 @@ function updateChickens(dt, t) {
       root.position.y = Math.abs(Math.sin(t * 6)) * 0.12;
       continue;
     }
+    if (r.munch > 0 || r.feeding) {               // nom nom: happy chewing with a little bounce
+      if (r.munch > 0) r.munch -= dt;
+      const rel = girl.root.position.clone().sub(r.group.position).applyQuaternion(r.q.clone().invert());
+      r.q.multiply(tq.setFromAxisAngle(AY, Math.atan2(rel.x, rel.z) * Math.min(1, dt * 8))).normalize();
+      root.rotation.y *= 0.8; root.rotation.x = 0;
+      root.position.y = r.feeding ? 0 : Math.abs(Math.sin(t * 12)) * 0.14;
+      root.scale.set(1 + Math.sin(t * 24) * 0.06 * (r.munch > 0 ? 1 : 0), 1 - Math.sin(t * 24) * 0.07 * (r.munch > 0 ? 1 : 0), 1);
+      root.rotation.z = Math.sin(t * 7) * 0.08;
+      r.heartT = (r.heartT || 0) - dt;
+      if (r.munch > 0 && r.heartT <= 0) { r.heartT = 0.5; burst(r.group.localToWorld(V((Math.random() - 0.5) * 0.6, 1.8, 0.3)), 0xffffff, 1, 1.4, 0.55, 1.4, heartTex, false); }
+      if (r.munch <= 0 && !r.feeding) root.scale.setScalar(1);
+      placeRoamer(r);
+      continue;
+    }
     // when she comes close: hop with excitement, run over, and cuddle her
     const toGirl = girl.root.position.distanceTo(r.group.position);
     if (toGirl > 4.8) r.armed = true;   // re-arms as soon as she steps away, so it greets her every time she comes back
-    if (r.mode === 'roam' && r.armed !== false && toGirl < 4.5 && state === 'play' && !modalOpen) {
+    if ((r.mode === 'roam' || r.mode === 'water' || r.mode === 'toWater') && r.armed !== false && toGirl < 4.5 && state === 'play' && !modalOpen) {
       r.mode = 'excited'; r.armed = false; r.t = 0; tone(1046.5, 0, 0.15, 0.08, 'triangle'); tone(1318.5, 0.1, 0.2, 0.08, 'triangle');
     }
     if (r.mode === 'excited' || r.mode === 'approach' || r.mode === 'cuddle') {
@@ -722,11 +873,45 @@ function updateChickens(dt, t) {
         r.heartT = (r.heartT || 0) - dt;
         if (r.heartT <= 0) { r.heartT = 0.45; burst(r.group.localToWorld(V((Math.random() - 0.5) * 0.6, 1.8, 0.3)), 0xffffff, 1, 1.4, 0.5 + Math.random() * 0.3, 1.4, heartTex, false); }
         if (toGirl > (r.cuddleD || 1.3) + 1.8 && r.t > 1.2) {     // keeps cuddling for as long as she stays close
-          r.mode = 'roam'; root.rotation.x = 0; root.scale.setScalar(1);
-          r.q.multiply(tq.setFromAxisAngle(AY, Math.PI * (0.7 + Math.random() * 0.6)));   // turn and wander off
+          r.mode = r.home ? 'toWater' : 'roam'; r.t = 0; root.rotation.x = 0; root.scale.setScalar(1);   // back to the waterhole, or off to wander
+          r.q.multiply(tq.setFromAxisAngle(AY, Math.PI * (0.7 + Math.random() * 0.6)));
           r.turnT = 1.5; r.turnRate = 0; r.pause = 0;
         }
       }
+      placeRoamer(r);
+      continue;
+    }
+
+    if (r.mode === 'toWater') {                   // trot over to its spot at the waterhole
+      const rel = r.home.dir.clone().multiplyScalar(R).sub(r.group.position).applyQuaternion(r.q.clone().invert());
+      r.q.multiply(tq.setFromAxisAngle(AY, Math.atan2(rel.x, rel.z) * Math.min(1, dt * 3))).normalize();
+      const od = AY.clone().applyQuaternion(r.q);
+      if (od.angleTo(r.home.dir) * R < 0.4) { r.mode = r.home.float ? 'float' : 'water'; r.t = 0; }
+      else if (r.t > 60) { r.home.taken = null; r.home = null; r.mode = 'roam'; }   // couldn't find a way: give up for now
+      else for (const side of [0, 0.9, -0.9, 1.6, -1.6]) {
+        const nq = r.q.clone().multiply(tq.setFromAxisAngle(AY, side)).multiply(tq.setFromAxisAngle(AX, (2.2 * dt) / R));
+        if (!blocked(od, AY.clone().applyQuaternion(nq), 0.4)) { r.q.copy(nq).multiply(tq.setFromAxisAngle(AY, -side)).normalize(); break; }
+      }
+      placeRoamer(r);
+      root.rotation.y *= 0.9; root.rotation.x = 0;
+      root.position.y = Math.abs(Math.sin(t * 10 + r.phase)) * 0.16;
+      root.rotation.z = Math.sin(t * 10 + r.phase) * 0.1;
+      continue;
+    }
+    if (r.mode === 'water') {                     // sit at the water's edge, now and then dipping for a sip
+      const rel = world.lake.c.clone().multiplyScalar(R).sub(r.group.position).applyQuaternion(r.q.clone().invert());
+      r.q.multiply(tq.setFromAxisAngle(AY, Math.atan2(rel.x, rel.z) * Math.min(1, dt * 2))).normalize();
+      const sip = Math.pow(Math.max(0, Math.sin(t * 0.8 + r.phase)), 14);
+      root.rotation.y *= 0.9; root.rotation.x = sip * 0.55; root.rotation.z = Math.sin(t * 1.3 + r.phase) * 0.04;
+      root.position.y = Math.pow(Math.max(0, Math.sin(t * 0.35 + r.phase * 2)), 30) * 0.35;   // the odd happy hop
+      placeRoamer(r);
+      continue;
+    }
+    if (r.mode === 'float') {                     // bob about in the deep water
+      r.q.multiply(tq.setFromAxisAngle(AY, dt * 0.18 * (r.phase > 3 ? 1 : -1))).normalize();
+      root.rotation.y = 0; root.rotation.x = Math.sin(t * 1.1 + r.phase) * 0.05; root.rotation.z = Math.sin(t * 1.4 + r.phase) * 0.08;
+      root.position.y = 0;
+      if (Math.random() < dt * 0.4) burst(r.group.position.clone().add(r.group.position.clone().normalize().multiplyScalar(0.3)), 0xffffff, 3, 1.2, 0.35, 0.8);
       placeRoamer(r);
       continue;
     }
@@ -1179,6 +1364,8 @@ if (DEBUG) window.__tick = (n = 30, dt = 1 / 30) => { for (let i = 0; i < n; i++
 function step(dt, t) {
   if (state === 'finale') updateFinale(dt, t); else updatePlayer(dt, t);
   updateChickens(dt, t);
+  if (state === 'play') updateWaterhole(dt);
+  updateBerries(dt);
   updateParticles(dt);
   cloudPivot.rotation.y += dt * 0.02;
   for (const c of cloudPivot.children) {   // elephants gently bob up and down
@@ -1203,6 +1390,9 @@ addEventListener('resize', () => {
 
 // chickens pulled out on earlier visits: roaming, or still waiting to hand over their letter
 for (const i of pulled) addRoamer(i, new THREE.Quaternion().setFromUnitVectors(AY, flowerDirs[i]), makeCabbageChicken(new THREE.Color(PALETTE[i % PALETTE.length])), false);
+// on a return visit, the waterhole already has its regulars
+for (const r of roamers.filter(x => x.mode === 'roam').slice(0, WATER_SPOTS.length)) sendToWater(r, WATER_SPOTS.find(sp => !sp.taken), true);
+updateBerryHUD(false);
 syncChickens();
 updateTimeUI();
 setInterval(() => { syncChickens(); updateTimeUI(); }, 1000);

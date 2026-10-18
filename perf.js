@@ -32,6 +32,9 @@ export function bake(container, skip = []) {
   for (const m of remove) for (const c of [...m.children]) if (skipSet.has(c)) container.attach(c);
   for (const m of remove) m.parent?.remove(m);
   for (const [mat, b] of buckets) {
+    // only keep attributes every part has (e.g. drop vertex colours if some parts don't carry them)
+    const common = Object.keys(b.geos[0].attributes).filter(k => b.geos.every(g => g.attributes[k]));
+    for (const g of b.geos) for (const k of Object.keys(g.attributes)) if (!common.includes(k)) g.deleteAttribute(k);
     const indexed = b.geos.every(g => g.index), geos = indexed ? b.geos : b.geos.map(g => (g.index ? g.toNonIndexed() : g));
     const merged = new THREE.Mesh(mergeGeometries(geos), mat);
     merged.castShadow = b.cast; merged.receiveShadow = b.receive; Object.assign(merged.userData, b.data);

@@ -319,9 +319,46 @@ export function buildPlanet(seed = 1) {
     return { h, wet: s.h < WATER && h < 0 };
   }
 
+  // the lagoon's middle is too deep to wade into
+  const isDeep = d => d.angleTo(lakeC) < LAKE * 0.7;
+
+  // ---------------------------------------------------------------- the stone stage
+  // A big, low, flat stone slab in an open meadow — too high to walk onto, so she jumps up.
+  const obstacles = [];
+  const STAGE_R = 4.6, STAGE_H = 0.9;
+  let stageDir = null;
+  for (let k = 0; k < 3000 && !stageDir; k++) {
+    const d = randDir(rng), a = d.angleTo(AY);
+    if (a < 0.45 || a > 1.7) continue;
+    const s = sample(d.x, d.y, d.z), rr = (STAGE_R + 1.5) / R;
+    if (isWet(s) || s.pd < PW + rr || s.ld < BEACH + rr || s.rd < RW + rr) continue;
+    if (flowerDirs.some(f => f.angleTo(d) < rr + 0.12) || bridges.some(b => b.dir.angleTo(d) < rr + 0.1)) continue;
+    stageDir = d;
+  }
+  const stage = new THREE.Group();
+  {
+    const r = STAGE_R, h = STAGE_H + 0.35;   // a little of it is sunk into the ground
+    const prof = [[0, h], [r - 0.55, h], [r - 0.2, h - 0.08], [r, h - 0.35], [r + 0.12, 0.25], [r + 0.2, -0.4]].map(([x, y]) => new THREE.Vector2(x, y));
+    const g = new THREE.LatheGeometry(prof, 72);
+    const pos = g.attributes.position;
+    for (let i = 0; i < pos.count; i++) {   // irregular, hand-hewn outline
+      const x = pos.getX(i), z = pos.getZ(i), a = Math.atan2(x, z);
+      const kk = 1 + 0.035 * Math.sin(a * 3 + 1) + 0.025 * Math.sin(a * 7 + 2) + 0.015 * Math.sin(a * 13);
+      pos.setX(i, x * kk); pos.setZ(i, z * kk);
+    }
+    g.computeVertexNormals();
+    const stoneM = softify(new THREE.MeshStandardMaterial({ color: 0xc3bdc9, roughness: 0.95 }), { scale: 0.35, strength: 0.55 });
+    const slab = new THREE.Mesh(g, stoneM); slab.castShadow = true; slab.receiveShadow = true;
+    stage.add(slab);
+    placeOnSurface(stage, stageDir, -0.35);
+    group.add(stage);
+  }
+  const stageTop = heightAt(stageDir) - 0.35 + STAGE_H + 0.35;
+  obstacles.push({ dir: stageDir, rad: STAGE_R, top: stageTop, plat: STAGE_R - 0.1 });
+  const nearStage = (d, pad) => d.angleTo(stageDir) * R < STAGE_R + pad;
+
   // ---------------------------------------------------------------- topiary trees, bushes & mounds
   // Shapes: 'lolly' (ball on a thin trunk), 'topiary' (stacked balls), 'bush' (ball on the ground)
-  const obstacles = [];
   const forests = Array.from({ length: 7 }, () => ({ c: randDir(rng), r: 0.35 + rng() * 0.25 }));
   const trees = [];
   for (let k = 0; k < 4000 && trees.length < 260; k++) {
@@ -332,7 +369,7 @@ export function buildPlanet(seed = 1) {
     const s = sample(d.x, d.y, d.z);
     if (isWet(s) || s.pd < PW * 1.8) continue;
     if (flowerDirs.some(f => f.angleTo(d) < 0.21)) continue;   // keep a little clearing around each chicken spot
-    if (bridges.some(b => b.dir.angleTo(d) < 0.13)) continue;
+    if (bridges.some(b => b.dir.angleTo(d) < 0.13) || nearStage(d, 2.5)) continue;
     const sc = 0.75 + rng() * 0.5;
     if (trees.some(t => t.d.angleTo(d) * R < (t.s + sc) * 1.05)) continue;
     const roll = rng();
@@ -346,12 +383,12 @@ export function buildPlanet(seed = 1) {
     const s = sample(d.x, d.y, d.z), r = 1.8 + rng() * 2;
     if (isWet(s) || s.pd < PW + r / R || s.ld < BEACH + r / R) continue;
     if (flowerDirs.some(f => f.angleTo(d) * R < r + 1.5) || trees.some(t => t.d.angleTo(d) * R < r + 0.8) || bridges.some(b => b.dir.angleTo(d) * R < r + 2)) continue;
-    if (mounds.some(m => m.d.angleTo(d) * R < m.r + r)) continue;
+    if (mounds.some(m => m.d.angleTo(d) * R < m.r + r) || nearStage(d, r + 1)) continue;
     mounds.push({ d, r });
   }
 
   const dummy = new THREE.Object3D(), m4 = new THREE.Matrix4(), m5 = new THREE.Matrix4();
-  const balls = [], leafyBalls = [], trunks = [], fruits = [];
+  const balls = [], leafyBalls = [], trunks = [], fruits = [], berryTrees = [];
   const fuzzCols = [0x6cb045, 0x78bb4c, 0x64a63f, 0x82c254].map(C), leafCols = [0x3f7f34, 0x4a8c3a, 0x35702d].map(C);
   const ball = (list, base, x, y, z, rx, ry, col) => list.push({ m: m4.clone().multiply(m5.compose(new THREE.Vector3(x, y, z), new THREE.Quaternion(), new THREE.Vector3(rx, ry, rx))), col });
   for (const t of trees) {
@@ -361,7 +398,15 @@ export function buildPlanet(seed = 1) {
     if (t.kind === 'lolly') {
       trunks.push(m4.clone());
       ball(list, m4, 0, 2.75, 0, 1.15, 1.15, col);
-      if (t.fruit) for (const [x, y, z] of [[0.75, 2.0, 0.55], [-0.5, 1.95, 0.75], [0.15, 1.85, -0.85]]) fruits.push(m4.clone().multiply(m5.makeTranslation(x, y, z)));
+      if (t.fruit) {   // a berry tree: remember which berries are its own so they can be picked
+        const slots = [];
+        for (const [x, y, z] of [[0.75, 2.0, 0.55], [-0.5, 1.95, 0.75], [0.15, 1.85, -0.85]]) {
+          const m = m4.clone().multiply(m5.makeTranslation(x, y, z));
+          slots.push({ idx: fruits.length, base: m.clone(), pos: new THREE.Vector3().setFromMatrixPosition(m), present: true, regrow: 0 });
+          fruits.push(m);
+        }
+        berryTrees.push({ dir: t.d, s: t.s, slots });
+      }
       obstacles.push({ dir: t.d, rad: 0.95 * t.s, top: heightAt(t.d) + 3.9 * t.s, plat: 1.0 * t.s });
     } else if (t.kind === 'topiary') {
       ball(list, m4, 0, 1.0, 0, 1.15, 1.1, col);
@@ -405,7 +450,7 @@ export function buildPlanet(seed = 1) {
     leafyG.computeVertexNormals(); }
   addInstanced(leafyG, softify(new THREE.MeshPhysicalMaterial({ roughness: 0.75, sheen: 0.5, sheenColor: new THREE.Color(0xb8f0a0) }), { scale: 1.6, strength: 1.1 }), leafyBalls);
   addInstanced(new THREE.CylinderGeometry(0.075, 0.1, 2.0, 10).translate(0, 1.0, 0), new THREE.MeshStandardMaterial({ color: 0x8c6b55, roughness: 0.8 }), trunks);
-  addInstanced(new THREE.SphereGeometry(0.16, 16, 12), new THREE.MeshPhysicalMaterial({ color: 0xe0322a, roughness: 0.3, clearcoat: 0.6 }), fruits);
+  const fruitI = addInstanced(new THREE.SphereGeometry(0.16, 12, 8), new THREE.MeshPhysicalMaterial({ color: 0xe0322a, roughness: 0.3, clearcoat: 0.6 }), fruits);
 
   // palms around the lagoon beach
   const palmTrunkM = new THREE.MeshStandardMaterial({ color: 0xc89a64, roughness: 0.9 }), palmLeafM = softify(new THREE.MeshStandardMaterial({ color: 0x74c35e, roughness: 1 }), { scale: 0.9, strength: 0.6 });
@@ -514,5 +559,5 @@ export function buildPlanet(seed = 1) {
     i++;
   }
 
-  return { group, flowerDirs, obstacles, cloudPivot, placeOnSurface, standHeight, shadowAll, mounds };
+  return { group, flowerDirs, obstacles, cloudPivot, placeOnSurface, standHeight, shadowAll, mounds, isDeep, lake: { c: lakeC, r: LAKE, beach: BEACH, water: WATER }, stage: { group: stage, dir: stageDir, r: STAGE_R, top: stageTop }, berryTrees, fruitI };
 }

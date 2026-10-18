@@ -118,6 +118,15 @@ export function animateCharacter(ch, t, walk, pose = 'walk') {
     ch.rig.position.y = Math.sin(t * 2) * 0.1;
     return;
   }
+  if (pose === 'reach' || pose === 'offer') {   // reaching up to pick a berry / holding one out
+    const up = pose === 'reach';
+    for (const [k, s] of [['shL', 1], ['shR', -1]]) { p[k].rotation.z = lerp(p[k].rotation.z, s * (up ? 2.3 : 0.25), 0.3); p[k].rotation.x = lerp(p[k].rotation.x, up ? -0.4 : -1.35, 0.3); }
+    p.hipL.rotation.x *= 0.7; p.hipR.rotation.x *= 0.7;
+    ch.rig.rotation.x = lerp(ch.rig.rotation.x, up ? -0.12 : 0.1, 0.3); ch.rig.rotation.z *= 0.8;
+    ch.rig.position.y = up ? Math.abs(Math.sin(t * 10)) * 0.06 : 0;
+    p.head.rotation.z = 0;
+    return;
+  }
   if (pose === 'jump') {            // arms up, knees tucked
     for (const [k, s] of [['shL', 1], ['shR', -1]]) { p[k].rotation.z = lerp(p[k].rotation.z, s * 1.9, 0.25); p[k].rotation.x = lerp(p[k].rotation.x, 0, 0.25); }
     p.hipL.rotation.x = lerp(p.hipL.rotation.x, -0.7, 0.25); p.hipR.rotation.x = lerp(p.hipR.rotation.x, -0.5, 0.25);

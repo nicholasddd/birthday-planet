@@ -13,9 +13,10 @@ export const CONFIG = {
   // Her birthday — the password that opens the planet (she types it as day/month, e.g. 12/11)
   birthday: { day: 12, month: 11 },   // 12 November (2001)
 
-  // When flower #1 appears (local time of the device she opens it on).
-  // Flower #N appears N-1 hours after this. 24 flowers -> 24 hours.
-  startTime: '2026-10-18T00:00:00',
+  // When the first chouchou appears: midnight on her birthday, Thailand time (UTC+7).
+  // The "+07:00" pins it to Thai time whatever timezone her computer is in.
+  // Chouchou #N appears N-1 hours after this, so all 24 arrive over the 24 hours of her birthday.
+  startTime: '2026-11-12T00:00:00+07:00',
 
   // Character colours (chibi plush style)
   girl: { face: 0xf7efe6, skin: 0xf3d2bf, hair: 0x5a3326, outfit: 0xeedfc8, ribbon: 0x7393d1, boots: 0x4e3027 },

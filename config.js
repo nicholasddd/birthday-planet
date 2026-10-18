@@ -10,8 +10,8 @@ export const CONFIG = {
   fromName: 'Your boy',
   monogram: '♥',
 
-  // Her birthday — the password that opens the planet (she types it as day/month, e.g. 18/10)
-  birthday: { day: 18, month: 10 },
+  // Her birthday — the password that opens the planet (she types it as day/month, e.g. 12/11)
+  birthday: { day: 12, month: 11 },   // 12 November (2001)
 
   // When flower #1 appears (local time of the device she opens it on).
   // Flower #N appears N-1 hours after this. 24 flowers -> 24 hours.

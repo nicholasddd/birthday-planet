@@ -77,6 +77,26 @@
   @keyframes pop { from { transform: translateY(-6px); opacity: 0; } }
   @keyframes out { to { opacity: 0; transform: translateY(-6px); } }
 
+  /* ---------- Opening story ---------- */
+  #intro { position: fixed; inset: 0; z-index: 25; display: grid; place-items: center; padding: 24px; background: radial-gradient(ellipse at 50% 55%, rgba(20, 16, 50, 0) 30%, rgba(20, 16, 50, .55) 100%); transition: opacity .9s ease; }
+  #intro:not(.open) { opacity: 0; pointer-events: none; }
+  .story { width: min(620px, 100%); text-align: center; display: flex; flex-direction: column; align-items: center; gap: 22px; }
+  .story-line { font-family: 'Cormorant Garamond', serif; font-style: italic; font-weight: 500; font-size: clamp(24px, 3.4vw, 34px); line-height: 1.35; color: #fff; text-shadow: 0 2px 18px rgba(30, 20, 60, .55), 0 1px 3px rgba(30, 20, 60, .4); opacity: 0; transform: translateY(8px); transition: opacity 1.4s ease, transform 1.4s ease; min-height: 2.7em; }
+  .story-line.show { opacity: 1; transform: none; }
+  .story-line small { display: block; font-family: 'Quicksand', sans-serif; font-style: normal; font-size: 13px; letter-spacing: .14em; text-transform: uppercase; opacity: .8; margin-bottom: 10px; }
+  .story-next { color: #fff; font-size: 13px; font-weight: 600; letter-spacing: .12em; text-transform: uppercase; padding: 8px 18px; border-radius: 999px; border: 1px solid rgba(255,255,255,.55); background: rgba(255,255,255,.12); backdrop-filter: blur(6px); opacity: 0; transition: opacity .8s ease 1s, background .2s; }
+  .story-next.show { opacity: 1; }
+  .story-next:hover { background: rgba(255,255,255,.25); }
+  .gate { border-radius: 20px; padding: 22px 26px 20px; width: min(380px, 100%); background: var(--glass-strong); animation: pop .5s cubic-bezier(.2,1.2,.4,1); }
+  .gate input { margin-top: 12px; width: 100%; text-align: center; font-family: 'Cormorant Garamond', serif; font-style: italic; font-size: 26px; padding: 8px 12px; border-radius: 12px; border: 1px solid rgba(201, 111, 147, .35); background: rgba(255,255,255,.7); color: var(--ink); outline: none; }
+  .gate input:focus { border-color: var(--rose); box-shadow: 0 0 0 3px rgba(217, 138, 168, .2); }
+  .gate .btn { margin-top: 12px; }
+  #gateMsg { min-height: 18px; font-size: 12px; color: var(--rose-deep); margin-top: 8px; }
+  .gate.shake { animation: shake .45s; }
+  @keyframes shake { 20%, 60% { translate: -8px 0; } 40%, 80% { translate: 8px 0; } }
+  #welcomeActions { display: flex; flex-direction: column; align-items: center; gap: 6px; animation: pop .6s ease; }
+  #welcomeActions .btn.soft { color: rgba(255,255,255,.85); }
+
   /* ---------- Overlays / modals ---------- */
   .overlay { position: fixed; inset: 0; display: grid; place-items: center; padding: 16px; background: rgba(60, 50, 80, .18); backdrop-filter: blur(2px); -webkit-backdrop-filter: blur(2px); z-index: 20; opacity: 0; pointer-events: none; transition: opacity .3s; }
   .overlay.open { opacity: 1; pointer-events: auto; }
@@ -176,15 +196,21 @@
 <button id="btnBlow" class="glass bottom hidden"><span class="pc-text">Spam <b>SPACE</b> to blow out the candles 🕯️</span><span class="pc-touch">Tap tap tap to blow out the candles 🕯️</span><div class="track"><i id="blowFill"></i></div></button>
 <div id="whatsThat" class="glass hidden"><div class="big-emoji">👀</div><div class="wt-title">What's that…?</div><button class="btn" id="btnLook">Take a closer look</button></div>
 
-<div id="intro" class="overlay open">
-  <div class="card">
-    <div class="eyebrow">a tiny planet, just for you</div>
-    <h1 id="introTitle">Happy Birthday</h1>
-    <p>Every hour for the next 24 hours, a little <b>chouchou</b> gets stuck in the ground somewhere — look for the glow.</p>
-    <p>Pull it out, and it'll have a letter for you 💌</p>
-    <div class="actions">
-      <button class="btn" id="btnStart">Let's go</button>
-      <button class="btn soft" id="btnIntroBell">🔔 Remind me each hour</button>
+<div id="intro" class="open">
+  <div class="story">
+    <div id="storyLine" class="story-line"></div>
+    <button id="storyNext" class="story-next">Continue</button>
+    <form id="gate" class="gate glass hidden" autocomplete="off">
+      <div class="eyebrow">the planet is listening</div>
+      <h1>Whisper your birthday</h1>
+      <p>Only one person in the whole universe can open this world.</p>
+      <input id="gateInput" placeholder="DD / MM" spellcheck="false" />
+      <div id="gateMsg"></div>
+      <button class="btn" type="submit">Open</button>
+    </form>
+    <div id="welcomeActions" class="hidden">
+      <button class="btn" id="btnStart">Step inside</button>
+      <button class="btn soft" id="btnIntroBell">🔔 Tell me when something new appears</button>
     </div>
   </div>
 </div>
@@ -231,7 +257,7 @@
 
 <div id="catalogue" class="overlay">
   <div class="card">
-    <h1>Your chouchous</h1>
+    <h1 id="catTitle">Your chouchous</h1>
     <div id="catSummary"></div>
     <div id="grid"></div>
     <div class="actions"><button class="btn soft" id="btnCloseCat">Close</button></div>

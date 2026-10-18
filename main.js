@@ -385,14 +385,17 @@ function updateTimeUI() {
       st.innerHTML = `${dot}All 24 letters found <button id="btnFinale">begin the finale</button>`;
       $('btnFinale').onclick = startFinale;
     }
-  } else if (u === 0) st.innerHTML = `${dot}First chouchou in ${fmtDur(startMs - now())}`;
-  else if (waiting > 0) st.innerHTML = `${dot}${waiting > 1 ? waiting + ' chouchous are' : 'A chouchou is'} stuck${next}`;
+  } else if (u === 0) st.innerHTML = `${dot}Something stirs in ${fmtDur(startMs - now())}`;
+  else if (waiting > 0) st.innerHTML = known()
+    ? `${dot}${waiting > 1 ? waiting + ' chouchous are' : 'A chouchou is'} stuck${next}`
+    : `${dot}Something is glowing on the planet${next}`;
   else if (holding > 0) st.innerHTML = `${dot}A chouchou has a letter for you${next}`;
-  else st.innerHTML = `${dot}Next chouchou in ${fmtDur(unlockTime(u) - now())}`;
+  else st.innerHTML = known() ? `${dot}Next chouchou in ${fmtDur(unlockTime(u) - now())}` : `${dot}Something new stirs in ${fmtDur(unlockTime(u) - now())}`;
   if (u > lastUnlocked) {
-    toast('🥬 A chouchou got stuck somewhere — follow the glow');
+    toast(known() ? '🥬 A chouchou got stuck somewhere — follow the glow' : '✨ Something is glowing somewhere — follow the light');
     chime();
-    notify('🥬 A chouchou is stuck!', 'Go pull it out — it has a letter for you 💌');
+    if (known()) notify('🥬 A chouchou is stuck!', 'Go pull it out — it has a letter for you 💌');
+    else notify('✨ Something is glowing on your planet', 'Go and see what it is…');
   }
   lastUnlocked = u;
 }
@@ -400,6 +403,7 @@ function updateTimeUI() {
 function renderCatalogue() {
   const grid = $('grid'); grid.innerHTML = '';
   const u = unlockedCount();
+  $('catTitle').textContent = known() ? 'Your chouchous' : 'Your treasures';
   $('catSummary').textContent = `${collected.size} of ${TOTAL} letters received`;
   for (let i = 0; i < TOTAL; i++) {
     const el = document.createElement('button');
@@ -416,7 +420,7 @@ function renderCatalogue() {
       el.onclick = () => closeOverlay('catalogue');
     } else if (i < u) {
       el.className = 'slot waiting';
-      el.innerHTML = `<span class="em">🥬</span><b>Hour ${i + 1}</b><span>Stuck in the ground!</span>`;
+      el.innerHTML = known() ? `<span class="em">🥬</span><b>Hour ${i + 1}</b><span>Stuck in the ground!</span>` : `<span class="em">✨</span><b>Hour ${i + 1}</b><span>Glowing somewhere</span>`;
       el.onclick = () => closeOverlay('catalogue');
     } else {
       el.className = 'slot locked';
@@ -430,6 +434,9 @@ function openOverlay(id) { $(id).classList.add('open'); modalOpen = true; }
 function closeOverlay(id) {
   $(id).classList.remove('open');
   modalOpen = ['intro', 'offer', 'letter', 'catalogue', 'ending'].some(k => $(k).classList.contains('open'));
+}
+const known = () => pulled.size > 0;   // she only learns what a chouchou is when she pulls out the first one
+{
 }
 
 // the flower this chouchou carried, drawn beside the letter
@@ -462,12 +469,12 @@ function openLetter(i) {
 $('btnStart').onclick = () => {
   try { actx = new (window.AudioContext || window.webkitAudioContext)(); } catch {}
   closeOverlay('intro');
-  state = 'play';
+  state = 'play'; diveUntil = lastT + 3.2;
   $('hud').classList.remove('hidden');
   if (matchMedia('(pointer: coarse)').matches) { $('joystick').classList.remove('hidden'); $('btnJump').classList.remove('hidden'); }
   if (store.get('bday-hint-ack') !== '1') { $('keys').classList.remove('hidden'); document.body.classList.add('hint-on'); }
   let waiting = 0; for (let i = 0; i < unlockedCount(); i++) if (!pulled.has(i)) waiting++;
-  if (waiting) setTimeout(() => toast(`🥬 ${waiting > 1 ? waiting + ' chouchous are' : 'A chouchou is'} waiting for you`), 600);
+  if (waiting) setTimeout(() => toast(known() ? `🥬 ${waiting > 1 ? waiting + ' chouchous are' : 'A chouchou is'} waiting for you` : '✨ Something is glowing on the planet…'), 2600);
 };
 $('btnIntroBell').onclick = askNotify;
 $('btnGotIt').onclick = () => {   // instructions only show until she's read them once
@@ -486,7 +493,57 @@ $('btnCloseLetter').onclick = () => {
 $('letter').addEventListener('click', e => { if (e.target.id === 'letter') $('btnCloseLetter').click(); });
 $('btnEndCat').onclick = () => { closeOverlay('ending'); renderCatalogue(); openOverlay('catalogue'); };
 $('btnReplay').onclick = () => location.reload();
-$('introTitle').textContent = `Happy Birthday, ${CONFIG.herName}`;
+// ---------------- the opening story: a few lines, then the birthday password
+const STORY = [
+  '<small>somewhere beyond the clouds</small>A tiny planet drifts quietly through the sky.',
+  'Its meadows are soft, its water is warm,<br>and its trees bear sweet red berries.',
+  'But it keeps its secrets well.<br>They are hidden, waiting, for one person only.',
+  'For one whole day, the planet will whisper to you.<br>Follow its glow, and you will find what it has been keeping.',
+];
+let storyStep = -1;
+function showStoryLine(html) {
+  const el = $('storyLine'); el.classList.remove('show'); void el.offsetWidth;
+  el.innerHTML = html; requestAnimationFrame(() => el.classList.add('show'));
+}
+function storyNext() {
+  storyStep++;
+  if (storyStep < STORY.length) {
+    showStoryLine(STORY[storyStep]);
+    $('storyNext').classList.remove('show'); setTimeout(() => $('storyNext').classList.add('show'), 50);
+  } else {
+    $('storyNext').classList.add('hidden'); $('storyLine').classList.remove('show');
+    $('gate').classList.remove('hidden'); setTimeout(() => $('gateInput').focus(), 100);
+  }
+}
+const MONTHS = ['jan', 'feb', 'mar', 'apr', 'may', 'jun', 'jul', 'aug', 'sep', 'oct', 'nov', 'dec'];
+function isHerBirthday(text) {
+  const t = text.toLowerCase(), nums = (t.match(/\d+/g) || []).map(Number);
+  const mi = MONTHS.findIndex(m => t.includes(m));
+  const { day, month } = CONFIG.birthday;
+  if (mi >= 0) return nums.includes(day) && mi + 1 === month;   // "18 October", "Oct 18th"
+  if (nums.length >= 3 && nums[0] > 31) return nums[1] === month && nums[2] === day;   // 1999-10-18
+  if (nums.length < 2) return false;
+  return (nums[0] === day && nums[1] === month) || (nums[0] === month && nums[1] === day);   // 18/10 or 10/18
+}
+function welcome(back) {
+  $('gate').classList.add('hidden'); $('storyNext').classList.add('hidden');
+  showStoryLine(back ? `Welcome back, ${CONFIG.herName}.` : `Welcome, ${CONFIG.herName}.<br>The planet has been waiting for you.`);
+  setTimeout(() => $('welcomeActions').classList.remove('hidden'), back ? 600 : 1400);
+  if (!back) { tone(659.3, 0, 1.2, 0.08); tone(880, 0.25, 1.2, 0.08); tone(1318.5, 0.5, 1.6, 0.07); }
+}
+$('storyNext').onclick = () => { try { actx ??= new (window.AudioContext || window.webkitAudioContext)(); } catch {} storyNext(); };
+$('gate').onsubmit = e => {
+  e.preventDefault();
+  if (isHerBirthday($('gateInput').value)) { store.set('bday-unlocked', '1'); welcome(false); }
+  else {
+    $('gateMsg').textContent = $('gateInput').value.trim() ? 'Hmm… the planet doesn\'t recognise that date.' : 'The planet is waiting…';
+    $('gate').classList.remove('shake'); void $('gate').offsetWidth; $('gate').classList.add('shake');
+  }
+};
+addEventListener('keydown', e => {   // Enter also moves the story along
+  if (e.code === 'Enter' && $('intro').classList.contains('open') && !$('storyNext').classList.contains('hidden')) $('storyNext').click();
+});
+if (store.get('bday-unlocked') === '1') welcome(true); else storyNext();
 $('endTitle').textContent = `Happy Birthday, ${CONFIG.herName}`;
 updateBell();
 
@@ -521,6 +578,7 @@ const keys = {};
 // buttons drop focus after a click, so SPACE never re-presses them by accident
 addEventListener('click', e => e.target.closest?.('button')?.blur(), true);
 addEventListener('keydown', e => {
+  if (e.target.tagName === 'INPUT') return;
   keys[e.code] = true;
   if (state === 'finale') { if ((e.code === 'Space' || e.code === 'Enter') && !e.repeat) { e.preventDefault(); finaleAction(); } return; }
   if (e.code === 'Space') { e.preventDefault(); if (!e.repeat) spaceAction(); }
@@ -595,7 +653,7 @@ function blocked(oldDir, newDir, pad = 0.35, feet = -Infinity) {
 }
 
 let nearChicken = null, nearHolder = null, offering = null, nearFeed = null, nearBerry = null, actText = '';
-let popFocus = null, camSide = 0, lastT = 0;   // close-up camera for pulling
+let popFocus = null, camSide = 0, lastT = 0, diveUntil = 0;   // close-up camera for pulling
 // candidate shots (sideways, along the pull) — 3/4 views first, then side-on, then from behind
 const SHOTS = [[5, -3.6], [-5, -3.6], [6.2, 0.4], [-6.2, 0.4], [2.6, -5.8], [-2.6, -5.8], [0, -6.4], [3.5, 3.5], [-3.5, 3.5]];
 function pickShot(camAt, target) {
@@ -699,13 +757,22 @@ function updatePlayer(dt, t) {
   if (nearChicken) $('pullFill').style.width = `${Math.round(nearChicken.userData.pull * 100)}%`;
 
   // camera follows behind & above, always looking the same way
-  const k = 1 - Math.exp(-dt * 4);
+  let k = 1 - Math.exp(-dt * 4);
   // pulling a chouchou out (and the moment it pops free): swing round to a side close-up of the two of them
   lastT = t;
   let focus = null;
   if (nearChicken && nearChicken.userData.pull > 0.02) focus = nearChicken.position;
   else if (popFocus && t < popFocus.until && !$('offer').classList.contains('open')) focus = popFocus.obj.position;
   if (!focus) camSide = 0;
+  if (state === 'intro') {                         // opening story: the planet slowly turning in the sky
+    const a = t * 0.05;
+    camera.position.lerp(V(Math.sin(a) * 66, 26, Math.cos(a) * 66), 1 - Math.exp(-dt * 2));
+    camLook.lerp(V(0, 2, 0), 1 - Math.exp(-dt * 2));
+    camera.up.lerp(AY, 0.1).normalize();
+    camera.lookAt(camLook);
+    return;
+  }
+  if (t < diveUntil) k = 1 - Math.exp(-dt * 1.3);   // gentle dive down to her after the welcome
   if ($('letter').classList.contains('open')) {   // reading: drift in close to her (and her chouchou)
     camera.position.lerp(girl.root.localToWorld(V(1.4, 2.3, 4.6)), k * 0.6);
     camLook.lerp(girl.root.localToWorld(V(0, 1.4, 0)), k * 0.6);
@@ -756,6 +823,7 @@ function freeChicken(i, instant = false) {
   if (instant) return;
   nearChicken = null; $('btnPull').classList.add('hidden');
   popSound();
+  if (pulled.size === 1) setTimeout(() => toast('💚 It\'s a little chouchou!'), 500);   // the big reveal
   updateTimeUI();
   const r = roamers.find(x => x.i === i);
   setTimeout(() => offerLetter(r), 1200);

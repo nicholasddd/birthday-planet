@@ -28,22 +28,32 @@ export function makeChibi(o, isGirl) {
   const bootM = soft(o.boots, 0x8a6a5a);
   const eyeM = new THREE.MeshPhysicalMaterial({ color: 0x1c1214, roughness: 0.35, clearcoat: 1, clearcoatRoughness: 0.2 });
 
-  // stubby legs + round boots
+  // stubby legs + round boots (the boy gets trousers that show below his sweater)
+  const legM = isGirl ? bootM : soft(o.pants ?? 0x3e4a63, 0x8a9ac0);
   for (const s of [-1, 1]) {
-    const hip = new THREE.Group(); hip.position.set(0.17 * s, 0.34, 0.02);
-    hip.add(mesh(new THREE.CapsuleGeometry(0.12, 0.08, 6, 12), bootM, 0, -0.12, 0));
-    const boot = mesh(ball(0.155), bootM, 0, -0.21, 0.04); boot.scale.set(1, 0.72, 1.25); hip.add(boot);
+    const hip = new THREE.Group(); hip.position.set((isGirl ? 0.17 : 0.16) * s, isGirl ? 0.34 : 0.48, 0.02);
+    if (isGirl) hip.add(mesh(new THREE.CapsuleGeometry(0.12, 0.08, 6, 12), bootM, 0, -0.12, 0));
+    else { hip.add(mesh(new THREE.CapsuleGeometry(0.135, 0.22, 6, 12), legM, 0, -0.2, 0)); hip.add(mesh(new THREE.CylinderGeometry(0.12, 0.13, 0.1, 14), bootM, 0, -0.34, 0)); }
+    if (!isGirl) hip.position.y -= 0.14;   // boots sit on the ground
+    const boot = mesh(ball(0.155), bootM, 0, isGirl ? -0.21 : -0.36, 0.04); boot.scale.set(1, 0.72, 1.25); hip.add(boot);
+    if (!isGirl) hip.position.y += 0.15;
     rig.add(hip); parts[s < 0 ? 'hipR' : 'hipL'] = hip;
   }
 
-  // bell-shaped oversized sweater with a soft wavy hem
-  const profile = [[0.0, 0.26], [0.5, 0.27], [0.6, 0.33], [0.59, 0.44], [0.5, 0.62], [0.38, 0.77], [0.25, 0.88], [0.14, 0.93], [0.0, 0.94]]
+  // girl: bell-shaped oversized sweater dress with a soft wavy hem · boy: a shorter, straighter jumper over trousers
+  const profile = (isGirl
+    ? [[0.0, 0.26], [0.5, 0.27], [0.6, 0.33], [0.59, 0.44], [0.5, 0.62], [0.38, 0.77], [0.25, 0.88], [0.14, 0.93], [0.0, 0.94]]
+    : [[0.0, 0.44], [0.4, 0.45], [0.45, 0.5], [0.45, 0.64], [0.41, 0.78], [0.3, 0.89], [0.15, 0.94], [0.0, 0.95]])
     .map(([x, y]) => new THREE.Vector2(x, y));
+  if (!isGirl) {   // trouser top + a ribbed jumper hem
+    rig.add(mesh(new THREE.CylinderGeometry(0.34, 0.33, 0.14, 24), legM, 0, 0.45, 0));
+    const hem = mesh(new THREE.TorusGeometry(0.42, 0.05, 8, 32), sweaterM, 0, 0.47, 0); hem.rotation.x = Math.PI / 2; rig.add(hem);
+  }
   const dressG = new THREE.LatheGeometry(profile, 48);
   { const p = dressG.attributes.position;
     for (let i = 0; i < p.count; i++) {
       const x = p.getX(i), y = p.getY(i), z = p.getZ(i), a = Math.atan2(x, z);
-      const k = 1 + 0.05 * Math.sin(a * 7) * THREE.MathUtils.smoothstep(0.55, 0.27, y);
+      const k = isGirl ? 1 + 0.05 * Math.sin(a * 7) * THREE.MathUtils.smoothstep(0.55, 0.27, y) : 1;
       p.setX(i, x * k); p.setZ(i, z * k);
     }
     dressG.computeVertexNormals(); }
@@ -67,13 +77,22 @@ export function makeChibi(o, isGirl) {
     const ear = mesh(ball(0.09, 16), skinM, 0.58 * s, -0.12, 0.02); ear.scale.set(0.55, 1, 0.8); head.add(ear);
   }
 
-  // hair: back cap, fringe, side strands
-  head.add(mesh(ball(0.63, 40), hairM, 0, 0.04, -0.14));
-  const fringe = mesh(ball(0.5, 32), hairM, 0, 0.36, 0.16); fringe.scale.set(1.12, 0.4, 0.66); head.add(fringe);
-  for (const s of [-1, 1]) {
-    head.add(strand(hairM, [0.1 * s, 0.42, 0.4], [0.4 * s, 0.14, 0.44], 0.085));     // parted bangs sweeping to the sides
-    head.add(strand(hairM, [0.45 * s, 0.2, 0.32], [0.55 * s, -0.36, 0.22], 0.075));     // face-framing locks
-    head.add(strand(hairM, [0.56 * s, 0.05, 0.12], [0.62 * s, -0.42, 0.06], 0.05));   // loose wisps
+  // hair
+  if (isGirl) {   // back cap, fringe, parted bangs, face-framing locks
+    head.add(mesh(ball(0.63, 40), hairM, 0, 0.04, -0.14));
+    const fringe = mesh(ball(0.5, 32), hairM, 0, 0.36, 0.16); fringe.scale.set(1.12, 0.4, 0.66); head.add(fringe);
+    for (const s of [-1, 1]) {
+      head.add(strand(hairM, [0.1 * s, 0.42, 0.4], [0.4 * s, 0.14, 0.44], 0.085));
+      head.add(strand(hairM, [0.45 * s, 0.2, 0.32], [0.55 * s, -0.36, 0.22], 0.075));
+      head.add(strand(hairM, [0.56 * s, 0.05, 0.12], [0.62 * s, -0.42, 0.06], 0.05));
+    }
+  } else {        // short boy cut: snug cap, short sides above the ears, a spiky little fringe
+    const cap = mesh(ball(0.62, 40), hairM, 0, 0.1, -0.1); cap.scale.set(1, 0.92, 1); head.add(cap);
+    const fringe = mesh(ball(0.5, 32), hairM, 0, 0.4, 0.2); fringe.scale.set(1.08, 0.34, 0.6); head.add(fringe);
+    for (const [x, rz, len] of [[-0.3, 0.35, 0.26], [-0.1, 0.1, 0.3], [0.1, -0.12, 0.28], [0.3, -0.38, 0.24]]) {   // fringe spikes
+      const spike = mesh(new THREE.ConeGeometry(0.1, len, 10), hairM, x, 0.34, 0.44); spike.rotation.set(Math.PI - 0.5, 0, rz); head.add(spike);
+    }
+    for (const s of [-1, 1]) { const side = mesh(ball(0.2, 20), hairM, 0.52 * s, 0.14, 0.02); side.scale.set(0.5, 0.9, 1.1); head.add(side); }   // short sides
   }
 
   if (isGirl) {
@@ -97,9 +116,10 @@ export function makeChibi(o, isGirl) {
     }
     bow.add(mesh(ball(0.075, 16), ribbonM));
   } else {
-    // short messy tufts
-    for (const [x, y, z, r] of [[0, 0.55, -0.05, 0.2], [0.22, 0.5, 0.05, 0.16], [-0.24, 0.5, 0.02, 0.17], [0.08, 0.45, 0.3, 0.15], [-0.12, 0.42, -0.35, 0.18]])
+    // a few messy tufts sticking up on top, and a cowlick
+    for (const [x, y, z, r] of [[0, 0.6, -0.02, 0.2], [0.24, 0.52, 0.04, 0.15], [-0.25, 0.52, 0.0, 0.16], [-0.1, 0.46, -0.36, 0.17]])
       head.add(mesh(ball(r, 20), hairM, x, y, z));
+    const lick = mesh(new THREE.ConeGeometry(0.06, 0.26, 8), hairM, 0.05, 0.8, -0.02); lick.rotation.z = -0.5; head.add(lick);
   }
 
   root.traverse(m => { if (m.isMesh) { m.castShadow = true; m.receiveShadow = true; } });

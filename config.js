@@ -17,6 +17,8 @@ export const CONFIG = {
   // The "+07:00" pins it to Thai time whatever timezone her computer is in.
   // Chouchou #N appears N-1 hours after this, so all 24 arrive over the 24 hours of her birthday.
   startTime: '2026-11-12T00:00:00+07:00',
+  // Shown on the waiting page so the wake-up time reads in Thai time
+  timeZone: 'Asia/Bangkok', timeZoneName: 'Thailand time',
 
   // Character colours (chibi plush style)
   girl: { face: 0xf7efe6, skin: 0xf3d2bf, hair: 0x5a3326, outfit: 0xeedfc8, ribbon: 0x7393d1, boots: 0x4e3027 },

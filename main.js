@@ -600,7 +600,37 @@ $('gate').onsubmit = e => {
 addEventListener('keydown', e => {   // Enter also moves the story along
   if (e.code === 'Enter' && $('intro').classList.contains('open') && !$('storyNext').classList.contains('hidden')) $('storyNext').click();
 });
-if (store.get('bday-unlocked') === '1') welcome(true); else storyNext();
+// ---- before the planet wakes: a quiet waiting page with a countdown
+let waitingMode = false;
+function beginIntro() { if (store.get('bday-unlocked') === '1') welcome(true); else storyNext(); }
+function updateWaiting() {
+  if (!waitingMode) return;
+  const ms = startMs - now();
+  if (ms <= 0) {   // it's time: the planet wakes up
+    waitingMode = false;
+    $('waiting').classList.add('hidden'); $('storyBox').classList.remove('hidden');
+    $('intro').classList.remove('sleeping');
+    tone(523.3, 0, 1.4, 0.07); tone(784, 0.3, 1.4, 0.07); tone(1046.5, 0.6, 1.8, 0.06);
+    setTimeout(beginIntro, 1800);
+    return;
+  }
+  const sTot = Math.floor(ms / 1000), p2 = n => String(n).padStart(2, '0');
+  $('cdD').textContent = Math.floor(sTot / 86400);
+  $('cdH').textContent = p2(Math.floor(sTot / 3600) % 24);
+  $('cdM').textContent = p2(Math.floor(sTot / 60) % 60);
+  $('cdS').textContent = p2(sTot % 60);
+}
+if (now() < startMs) {
+  waitingMode = true;
+  const tz = CONFIG.timeZone, opts = { day: 'numeric', month: 'long', timeZone: tz };
+  const when = new Date(startMs).toLocaleDateString('en-GB', opts);
+  const time = new Date(startMs).toLocaleTimeString('en-GB', { hour: 'numeric', minute: '2-digit', hour12: true, timeZone: tz }).replace(':00', '').replace(' ', '');
+  $('wakeNote').textContent = `It wakes on ${when} at ${time === '12am' ? 'midnight' : time}${CONFIG.timeZoneName ? ` (${CONFIG.timeZoneName})` : ''}. Come back then — it will be waiting for you.`;
+  $('waiting').classList.remove('hidden'); $('storyBox').classList.add('hidden');
+  $('intro').classList.add('sleeping');
+  updateWaiting();
+  setInterval(updateWaiting, 1000);
+} else beginIntro();
 $('endTitle').textContent = `Happy Birthday, ${CONFIG.herName}`;
 updateBell();
 
@@ -1504,6 +1534,11 @@ function step(dt, t) {
   const camDir = camera.position.clone().normalize();
   const side = V().crossVectors(camDir, camera.up).normalize();
   sun.position.copy(camDir).multiplyScalar(60).addScaledVector(side, 25).addScaledVector(camera.up, 25);
+  if (state !== 'finale') {   // night while the planet sleeps, day once it wakes
+    const nk = 1 - Math.exp(-dt * 0.6), u = sky.material.uniforms;
+    u.uTop.value.lerp(waitingMode ? SKY.nightTop : SKY.dayTop, nk); u.uBottom.value.lerp(waitingMode ? SKY.nightBottom : SKY.dayBottom, nk);
+    starsMat.opacity = lerp(starsMat.opacity, waitingMode ? 1 : 0, nk);
+  }
   hemi.position.copy(camera.up);   // sky light always comes from her "up"
   sky.position.copy(camera.position);
   sky.material.uniforms.uUp.value.copy(camera.up);

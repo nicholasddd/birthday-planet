@@ -77,6 +77,16 @@
   @keyframes pop { from { transform: translateY(-6px); opacity: 0; } }
   @keyframes out { to { opacity: 0; transform: translateY(-6px); } }
 
+  /* ---------- Waiting page (before the planet wakes) ---------- */
+  .waiting { width: min(640px, 100%); text-align: center; display: flex; flex-direction: column; align-items: center; gap: 26px; animation: fadein 2s ease; }
+  @keyframes fadein { from { opacity: 0; } }
+  .countdown { display: flex; gap: clamp(14px, 3vw, 30px); }
+  .countdown div { display: flex; flex-direction: column; align-items: center; min-width: 64px; }
+  .countdown b { font-family: 'Cormorant Garamond', serif; font-weight: 500; font-size: clamp(40px, 6vw, 64px); line-height: 1; color: #fff; text-shadow: 0 2px 20px rgba(160, 140, 255, .55); font-variant-numeric: tabular-nums; }
+  .countdown span { margin-top: 6px; font-size: 10.5px; letter-spacing: .18em; text-transform: uppercase; color: rgba(255,255,255,.75); }
+  .wake-note { color: rgba(255,255,255,.92); font-size: 13.5px; line-height: 1.6; max-width: 420px; text-shadow: 0 1px 8px rgba(20, 15, 50, .8); }
+  .countdown span { text-shadow: 0 1px 6px rgba(20, 15, 50, .8); }
+  #intro.sleeping { background: radial-gradient(ellipse at 50% 50%, rgba(18, 14, 46, .45) 0%, rgba(18, 14, 46, .7) 100%); transition: background 2s ease, opacity .9s ease; }
   /* ---------- Opening story ---------- */
   #intro { position: fixed; inset: 0; z-index: 25; display: grid; place-items: center; padding: 24px; background: radial-gradient(ellipse at 50% 55%, rgba(20, 16, 50, 0) 30%, rgba(20, 16, 50, .55) 100%); transition: opacity .9s ease; }
   #intro:not(.open) { opacity: 0; pointer-events: none; }
@@ -214,7 +224,14 @@
 <div id="whatsThat" class="glass hidden"><div class="big-emoji">👀</div><div class="wt-title">What's that…?</div><button class="btn" id="btnLook">Take a closer look</button></div>
 
 <div id="intro" class="open">
-  <div class="story">
+  <div id="waiting" class="waiting hidden">
+    <div class="story-line show"><small>not yet…</small>The planet is still asleep,<br>drifting quietly through the clouds.</div>
+    <div class="countdown" id="countdown">
+      <div><b id="cdD">0</b><span>days</span></div><div><b id="cdH">00</b><span>hours</span></div><div><b id="cdM">00</b><span>minutes</span></div><div><b id="cdS">00</b><span>seconds</span></div>
+    </div>
+    <p class="wake-note" id="wakeNote"></p>
+  </div>
+  <div class="story" id="storyBox">
     <div id="storyLine" class="story-line"></div>
     <button id="storyNext" class="story-next">Continue</button>
     <form id="gate" class="gate glass hidden" autocomplete="off">

@@ -9,6 +9,7 @@ import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import { makeChibi, animateCharacter } from './characters.js';
 import { makeCabbageChicken } from './chickens.js';
 import { bake } from './perf.js';
+import { createMusic } from './music.js';
 
 // ============================================================ utils
 const TOTAL = 24;
@@ -325,6 +326,22 @@ function updateParticles(dt) {
 
 // ============================================================ audio
 let actx = null, muted = store.get('bday-muted') === '1';
+// one shared audio context, created on her first click / key press (browsers require a gesture)
+let music = null, wantedTrack = null;
+function getAudio() {
+  try {
+    if (!actx) {
+      actx = new (window.AudioContext || window.webkitAudioContext)();
+      music = createMusic(actx, CONFIG.music || {}); music.setMuted(muted);
+      if (wantedTrack) music.play(wantedTrack);
+      document.querySelectorAll('.music-hint').forEach(el => el.classList.add('hidden'));
+    }
+    if (actx.state === 'suspended') actx.resume();
+  } catch {}
+}
+function playMusic(name) { wantedTrack = name; music?.play(name); }
+addEventListener('pointerdown', getAudio, true);
+addEventListener('keydown', getAudio, true);
 function tone(freq, when, dur = 0.5, vol = 0.15, type = 'sine') {
   if (!actx || muted) return;
   const o = actx.createOscillator(), g = actx.createGain();
@@ -467,7 +484,7 @@ function openLetter(i) {
 }
 
 $('btnStart').onclick = () => {
-  try { actx = new (window.AudioContext || window.webkitAudioContext)(); } catch {}
+  getAudio(); playMusic('planet');
   closeOverlay('intro');
   state = 'play'; diveUntil = lastT + 3.2;
   $('hud').classList.remove('hidden');
@@ -482,7 +499,7 @@ $('btnGotIt').onclick = () => {   // instructions only show until she's read the
   $('keys').classList.add('hidden'); document.body.classList.remove('hint-on');
 };
 $('btnBell').onclick = askNotify;
-$('btnSound').onclick = () => { muted = !muted; store.set('bday-muted', muted ? '1' : '0'); $('btnSound').textContent = muted ? '🔇' : '🔊'; };
+$('btnSound').onclick = () => { muted = !muted; store.set('bday-muted', muted ? '1' : '0'); $('btnSound').textContent = muted ? '🔇' : '🔊'; music?.setMuted(muted); };
 $('btnSound').textContent = muted ? '🔇' : '🔊';
 $('btnCat').onclick = () => { renderCatalogue(); openOverlay('catalogue'); };
 $('btnCloseCat').onclick = () => closeOverlay('catalogue');
@@ -521,7 +538,7 @@ function welcome(back) {
   setTimeout(() => $('welcomeActions').classList.remove('hidden'), back ? 600 : 1400);
   if (!back) { tone(659.3, 0, 1.2, 0.08); tone(880, 0.25, 1.2, 0.08); tone(1318.5, 0.5, 1.6, 0.07); }
 }
-$('storyNext').onclick = () => { try { actx ??= new (window.AudioContext || window.webkitAudioContext)(); } catch {} storyNext(); };
+$('storyNext').onclick = () => { getAudio(); storyNext(); };
 // ---- the combination padlock: four scrolling dials, DD / MM
 const ROW = 30;   // px per digit on a dial
 const dials = [...document.querySelectorAll('#lock .dial')].map((el, i) => {
@@ -620,6 +637,7 @@ function updateWaiting() {
   $('cdM').textContent = p2(Math.floor(sTot / 60) % 60);
   $('cdS').textContent = p2(sTot % 60);
 }
+playMusic('waiting');
 if (now() < startMs) {
   waitingMode = true;
   const tz = CONFIG.timeZone, opts = { day: 'numeric', month: 'long', timeZone: tz };
@@ -655,6 +673,7 @@ if (DEBUG) {
   window.__phase = () => finale?.phase;   // for testing
   window.__roamers = () => roamers.map(r => r.mode);
   window.__quality = () => quality.level;
+  window.__music = () => music?.track ?? null;
   window.__three = () => ({ renderer, scene, composer, camera, roamers, particles, smoke, obstacles, pq, girl, world, WATER_SPOTS });
   window.__girl = () => ({ h: +girlH.toFixed(2), air: airborne, jump: +jumpHeight().toFixed(2) });
   window.__dist = () => roamers.map(r => +girl.root.position.distanceTo(r.group.position).toFixed(2));
@@ -1240,6 +1259,7 @@ function updateSmoke(dt) {
 
 function startFinale() {
   if (state === 'finale') return;
+  wantedTrack = null; music?.stop(3);
   state = 'finale';
   $('hud').classList.add('hidden');   // the finale is a cinematic: no HUD
   $('joystick').classList.add('hidden'); $('btnJump').classList.add('hidden');
@@ -1328,7 +1348,7 @@ function updateFinale(dt, t) {
   } else if (f.phase === 'smoke') {               // ...and bursts; the cake appears as the smoke clears
     const p = clamp(f.t / 5, 0, 1);
     if (f.t > 0.35) { planetGroup.visible = false; planetGroup.position.set(0, 0, 0); }
-    if (f.t > 3.3 && !cake.visible) { cake.visible = true; chime(); burst(F(0, 2, 0), 0xffffff, 30, 12, 1.4, 1.2); }
+    if (f.t > 3.3 && !cake.visible) { cake.visible = true; chime(); playMusic('ending'); burst(F(0, 2, 0), 0xffffff, 30, 12, 1.4, 1.2); }
     cake.scale.setScalar(Math.max(0.001, lerp(0.7, 1, easeOutBack(clamp((f.t - 3.3) / 1.2, 0, 1)))));
     girl.root.position.copy(girlUp).lerp(girlFly, ease(p));
     girl.root.scale.setScalar(lerp(2.4, 3, ease(p)));

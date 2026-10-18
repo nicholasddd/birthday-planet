@@ -84,6 +84,7 @@
   .countdown div { display: flex; flex-direction: column; align-items: center; min-width: 64px; }
   .countdown b { font-family: 'Cormorant Garamond', serif; font-weight: 500; font-size: clamp(40px, 6vw, 64px); line-height: 1; color: #fff; text-shadow: 0 2px 20px rgba(160, 140, 255, .55); font-variant-numeric: tabular-nums; }
   .countdown span { margin-top: 6px; font-size: 10.5px; letter-spacing: .18em; text-transform: uppercase; color: rgba(255,255,255,.75); }
+  .music-hint { color: rgba(255,255,255,.6); font-size: 11.5px; letter-spacing: .08em; animation: blink 3s ease-in-out infinite; }
   .wake-note { color: rgba(255,255,255,.92); font-size: 13.5px; line-height: 1.6; max-width: 420px; text-shadow: 0 1px 8px rgba(20, 15, 50, .8); }
   .countdown span { text-shadow: 0 1px 6px rgba(20, 15, 50, .8); }
   #intro.sleeping { background: radial-gradient(ellipse at 50% 50%, rgba(18, 14, 46, .45) 0%, rgba(18, 14, 46, .7) 100%); transition: background 2s ease, opacity .9s ease; }
@@ -230,6 +231,7 @@
       <div><b id="cdD">0</b><span>days</span></div><div><b id="cdH">00</b><span>hours</span></div><div><b id="cdM">00</b><span>minutes</span></div><div><b id="cdS">00</b><span>seconds</span></div>
     </div>
     <p class="wake-note" id="wakeNote"></p>
+    <p class="music-hint">♪ click anywhere for music</p>
   </div>
   <div class="story" id="storyBox">
     <div id="storyLine" class="story-line"></div>

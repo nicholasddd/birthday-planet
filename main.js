@@ -479,6 +479,22 @@ function blocked(oldDir, newDir, pad = 0.35, feet = -Infinity) {
 }
 
 let nearChicken = null, nearHolder = null, offering = null;
+let popFocus = null, camSide = 0, lastT = 0;   // close-up camera for pulling
+// candidate shots (sideways, along the pull) — 3/4 views first, then side-on, then from behind
+const SHOTS = [[5, -3.6], [-5, -3.6], [6.2, 0.4], [-6.2, 0.4], [2.6, -5.8], [-2.6, -5.8], [0, -6.4], [3.5, 3.5], [-3.5, 3.5]];
+function pickShot(camAt, target) {
+  let best = SHOTS[0], bestHits = Infinity;
+  for (const shot of SHOTS) {
+    const p = camAt(shot); let hits = 0;
+    for (const o of obstacles) {
+      if (o.top < 1.5) continue;   // only trees/palms can block the view
+      const c = o.dir.clone().multiplyScalar(R + o.top - 1.1), rc = Math.max(o.rad, o.plat) + 0.7;
+      for (const f of [0, 0.3, 0.6]) if (p.clone().lerp(target, f).distanceTo(c) < rc) hits++;
+    }
+    if (hits < bestHits) { bestHits = hits; best = shot; if (!hits) break; }
+  }
+  return best;
+}
 function updatePlayer(dt, t) {
   const canMove = state === 'play' && !modalOpen;
   // camera-relative movement: W/S forward/back, A/D left/right. The camera never turns;
@@ -544,9 +560,25 @@ function updatePlayer(dt, t) {
 
   // camera follows behind & above, always looking the same way
   const k = 1 - Math.exp(-dt * 4);
+  // pulling a chouchou out (and the moment it pops free): swing round to a side close-up of the two of them
+  lastT = t;
+  let focus = null;
+  if (nearChicken && nearChicken.userData.pull > 0.02) focus = nearChicken.position;
+  else if (popFocus && t < popFocus.until && !$('offer').classList.contains('open')) focus = popFocus.obj.position;
+  if (!focus) camSide = 0;
   if ($('letter').classList.contains('open')) {   // reading: drift in close to her (and her chouchou)
     camera.position.lerp(girl.root.localToWorld(V(1.4, 2.3, 4.6)), k * 0.6);
     camLook.lerp(girl.root.localToWorld(V(0, 1.4, 0)), k * 0.6);
+  } else if (focus && !overview) {
+    const gp = girl.root.position, mid = gp.clone().add(focus).multiplyScalar(0.5);
+    const along = focus.clone().sub(gp); along.addScaledVector(here, -along.dot(here)).normalize();
+    const side = V().crossVectors(here, along).normalize();
+    const fit = 1 / Math.sqrt(Math.min(1, camera.aspect));   // step back further on tall phone screens
+    const camAt = ([sx, ax]) => mid.clone().addScaledVector(side, sx * fit).addScaledVector(along, ax * fit).addScaledVector(here, 2.6);
+    if (!camSide) camSide = pickShot(camAt, mid);   // choose once per pull: an angle with no tree in the way
+    const kc = 1 - Math.exp(-dt * 3);
+    camera.position.lerp(camAt(camSide), kc);
+    camLook.lerp(mid.clone().addScaledVector(here, 0.9), kc);
   } else {
     const lift = Math.max(0, girlH) * 0.55;
     camera.position.lerp((overview ? V(0, R * 2.4, -R * 1.6) : V(0, R + 7 + lift, -11)).applyQuaternion(pq), k);
@@ -574,6 +606,7 @@ function freeChicken(i, instant = false) {
     const { ch, halo, beam, ring } = holder.userData;
     holder.remove(halo, beam, ring, ch.root);
     const r = addRoamer(i, holder.quaternion, ch, !instant);
+    if (!instant) popFocus = { obj: r.group, until: lastT + 2.6 };
     ch.root.position.y = SINK + 0.4;
     if (!instant) burst(holder.localToWorld(V(0, 0.6, 0)), PALETTE[i % PALETTE.length], 40, 7, 0.8, 1.4);
     else ch.root.position.y = 0;

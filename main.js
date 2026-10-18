@@ -618,7 +618,10 @@ function updatePlayer(dt, t) {
   let mx = 0, mz = 0;
   if (canMove) {
     mz = (keys.KeyW || keys.ArrowUp ? 1 : 0) - (keys.KeyS || keys.ArrowDown ? 1 : 0) - joy.y;
-    mx = (keys.KeyA || keys.ArrowLeft ? 1 : 0) - (keys.KeyD || keys.ArrowRight ? 1 : 0) - joy.x;
+    mx = (keys.KeyA ? 1 : 0) - (keys.KeyD ? 1 : 0) - joy.x;
+    // ← / → orbit the camera around her (she keeps facing the same way)
+    const look = (keys.ArrowLeft ? 1 : 0) - (keys.ArrowRight ? 1 : 0);
+    if (look) { const a = look * 2.2 * dt; pq.multiply(tq.setFromAxisAngle(AY, a)); faceYaw -= a; faceTarget -= a; }
   }
   let len = Math.hypot(mx, mz);
   if (len > 1) { mx /= len; mz /= len; len = 1; }

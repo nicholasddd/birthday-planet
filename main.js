@@ -1284,6 +1284,19 @@ const sb = {};   // strawberry-boy parts: head, arms, legs
   });
   shadowAll(bean);
   sb.pop = [0, 0, 0];
+  // the bite mark she leaves (hidden until she bites): pale flesh with a scalloped edge
+  const biteM = new THREE.MeshStandardMaterial({ color: 0xffe2dc, roughness: 0.6 });
+  sb.bite = new THREE.Group();
+  sb.bite.position.set(0.92, 0.42, 0.12).normalize().multiplyScalar(0.94);
+  sb.bite.lookAt(sb.bite.position.clone().multiplyScalar(2));
+  for (const [x, y, r] of [[0, 0, 0.2], [0.15, 0.08, 0.12], [-0.15, 0.08, 0.12], [0.08, -0.13, 0.11], [-0.09, -0.13, 0.11]]) {
+    const m = new THREE.Mesh(new THREE.SphereGeometry(r, 14, 10), biteM); m.scale.z = 0.35; m.position.set(x, y, 0.02); sb.bite.add(m);
+  }
+  sb.bite.scale.setScalar(0.001); berryBody.add(sb.bite);
+  // pink cheeks for when she bites him
+  const blushM = new THREE.MeshBasicMaterial({ color: 0xff8fa8, transparent: true, opacity: 0 });
+  sb.blush = blushM;
+  for (const sd of [-1, 1]) { const c = new THREE.Mesh(new THREE.CircleGeometry(0.11, 20), blushM); c.position.set(0.33 * sd, -0.2, 0.52); c.scale.y = 0.6; c.rotation.y = 0.45 * sd; sb.head.add(c); }
 }
 // pose the strawberry boy: pop = how far head/arms/legs are out (0–1), wiggle = how much he's struggling
 function poseBerryBoy(t, wiggle) {
@@ -1362,7 +1375,12 @@ function startFinale() {
   noiseSound(2.5, 500, 0.05, 1.5);
 }
 function next(phase) { finale.phase = phase; finale.t = 0; }
-const KISS_G = () => bean.localToWorld(V(-3.9, -2.7, 2.5));   // where she floats so her lips meet his cheek
+// she floats in behind the strawberry's top-right shoulder, so her mouth reaches the bite spot
+const BITE_G = () => bean.localToWorld(V(5.9, -2.6, -2.1));
+function biteYaw() {   // turn her to face the spot she's about to nibble
+  const rel = sb.bite.getWorldPosition(V()).sub(girl.root.position).applyQuaternion(finale.fq.clone().invert());
+  return Math.atan2(rel.x, rel.z);
+}
 const KISS_YAW = 1.12;   // turned toward each other, but angled to the camera so we see their faces
 // everyone takes a place on a tilted ring around the planet: the two of them together, then all 24 chouchous
 function startOrbit() {
@@ -1379,7 +1397,7 @@ function startOrbit() {
   // from the kiss pose, they ease round to fly side by side, both looking ahead along the orbit
   f.pair = [[girl.root, V(-2.3, -2.6, 0), 2.6], [bean, V(2.4, 0.4, 0), 0.75]].map(([obj, p1, s1]) => ({ obj, p0: obj.position.clone(), q0: obj.quaternion.clone(), s0: obj.scale.x, p1, s1 }));
   items.push(couple);
-  for (const c of flung) items.push({ obj: c.g, radius: 31 + (Math.random() - 0.5) * 3, lift: (Math.random() - 0.5) * 4, s: 2.2, spin: true });
+  for (const c of flung) items.push({ obj: c.g, ch: c.ch, radius: 31 + (Math.random() - 0.5) * 3, lift: (Math.random() - 0.5) * 4, s: 2.2, spin: true, seed: Math.random() * 10 });
   for (const it of items) { it.from = it.obj.position.clone(); it.fromQ = it.obj.quaternion.clone(); it.fromS = it.obj.scale.x; }
   f.orbit = { n, u, v, items, angle: Math.atan2(couple.obj.position.dot(v), couple.obj.position.dot(u)) };
 }
@@ -1424,7 +1442,7 @@ function burstPlanet() {
     scene.attach(r.group);
     r.mode = 'flung';
     const out = r.group.position.clone().normalize();
-    flung.push({ g: r.group, vel: out.multiplyScalar(14 + Math.random() * 12).add(randDir(Math.random).multiplyScalar(5)), spin: randDir(Math.random).multiplyScalar(2 + Math.random() * 3), phase: Math.random() * 6 });
+    flung.push({ g: r.group, ch: r.ch, vel: out.multiplyScalar(14 + Math.random() * 12).add(randDir(Math.random).multiplyScalar(5)), spin: randDir(Math.random).multiplyScalar(2 + Math.random() * 3), phase: Math.random() * 6 });
   }
   cake.visible = false;   // revealed once the smoke clears
 }
@@ -1542,27 +1560,37 @@ function updateFinale(dt, t) {
     if (Math.random() < dt * 3) burst(bean.localToWorld(V((Math.random() - 0.5) * 1.6, 1.1, 0.6)), 0xbfe6ff, 1, 2.5, 0.5, 0.8);   // effort droplets
     camPos = F(5, 15, 34); look = F(0, 12, 0);
     if (f.t > 3.4) next('meet');
-  } else if (f.phase === 'meet') {             // she floats over to him and turns to face him
+  } else if (f.phase === 'meet') {             // she floats round behind the strawberry...
     const p = clamp(f.t / 3, 0, 1), e = ease(p);
     poseBerryBoy(t, 1 - e * 0.85);
     bean.position.x = lerp(bean.position.x, 0, 0.1);
-    girl.root.position.copy(girlFly).lerp(KISS_G(), e);
-    girl.root.quaternion.copy(f.fq).multiply(tq.setFromAxisAngle(AY, lerp(f.gy || 0, KISS_YAW, e)));
-    sb.head.rotation.y = lerp(sb.head.rotation.y, -0.45, 0.08);   // he turns to look at her
-    camPos = F(-2, 15, 30); look = F(0, 7, 0).lerp(F(-2.4, 13, 2), e); camSpeed = 1.2;
-    if (p >= 1) next('kiss');
-  } else if (f.phase === 'kiss') {             // a little kiss on the cheek, with hearts
-    const p = clamp(f.t / 3.4, 0, 1), lean = Math.sin(Math.min(1, p * 1.6) * Math.PI / 2) * (p < 0.85 ? 1 : 1 - (p - 0.85) / 0.15);
-    poseBerryBoy(t, f.kissed ? 0.35 : 0.15);   // a happy little wiggle once she's kissed him
-    sb.head.rotation.y = lerp(sb.head.rotation.y, -0.45, 0.1);
-    girl.root.position.copy(KISS_G()).add(F(0.35 * lean, 0, 0));
-    girl.root.quaternion.copy(f.fq).multiply(tq.setFromAxisAngle(AY, KISS_YAW)).multiply(tq.setFromAxisAngle(AX, 0.16 * lean));
-    const cheek = bean.localToWorld(V(-0.9, 0.8, 0.9));
-    if (!f.kissed && p > 0.28) { f.kissed = true; tone(1046.5, 0, 0.5, 0.06, 'sine'); tone(1318.5, 0.12, 0.7, 0.05, 'sine'); burst(cheek.clone().add(F(0, 2, 0)), 0xffffff, 10, 4, 1.6, 2.2, heartTex, false); }
-    f.heartT = (f.heartT || 0) - dt;
-    if (f.kissed && f.heartT <= 0) { f.heartT = 0.35; burst(cheek.clone().add(F((Math.random() - 0.5) * 2, 2.5, 0)), 0xffffff, 1, 2, 1 + Math.random() * 0.8, 2.4, heartTex, false); }
-    camPos = F(-2, 15, 27); look = F(-2.4, 13, 2); camSpeed = 1;
-    if (p >= 1) { next('orbit'); startOrbit(); }
+    girl.root.position.copy(girlFly).lerp(BITE_G(), e);
+    girl.root.quaternion.copy(f.fq).multiply(tq.setFromAxisAngle(AY, lerp(f.gy || 0, biteYaw(), e)));
+    camPos = F(4.5, 16, 30); look = F(0, 7, 0).lerp(F(2.6, 13, 0), e); camSpeed = 1.2;
+    if (p >= 1) next('bite');
+  } else if (f.phase === 'bite') {             // ...hugs it, and takes a cute little nibble
+    const T = f.t;
+    girl.root.position.copy(BITE_G()).add(F(-0.25, 0, 0.2).multiplyScalar(Math.min(1, T * 2)));
+    girl.root.quaternion.copy(f.fq).multiply(tq.setFromAxisAngle(AY, biteYaw())).multiply(tq.setFromAxisAngle(AX, 0.22));
+    // nom… nom… nom
+    const chomping = T > 0.5 && T < 2.9;
+    f.nod = chomping ? 0.28 + Math.max(0, Math.sin((T - 0.5) * 13)) * 0.22 : 0.18;
+    f.chompT = (f.chompT ?? 0.5) - dt;
+    if (chomping && f.chompT <= 0) {
+      f.chompT = 0.48;
+      noiseSound(0.12, 2400, 0.12, 0.005); tone(380, 0.02, 0.08, 0.06, 'square');
+      const at = sb.bite.getWorldPosition(V());
+      burst(at, 0xe8283f, 4, 3, 0.35, 0.6, glowTex, false);
+      burst(at.clone().add(F(0, 1.5, 0)), 0xffffff, 1, 1.5, 0.9, 1.6, heartTex, false);
+      f.bites = (f.bites || 0) + 1;
+    }
+    if ((f.bites || 0) >= 2) sb.bite.scale.setScalar(Math.min(1, sb.bite.scale.x + dt * 4));   // the bite mark appears
+    // he's surprised… then blushes and turns to look at her
+    sb.blush.opacity = Math.min(0.85, sb.blush.opacity + dt * (T > 1 ? 0.8 : 0));
+    poseBerryBoy(t, T < 1 ? 0.6 : 0.25);
+    sb.head.rotation.y = lerp(sb.head.rotation.y, 0.5, 0.06);
+    camPos = F(4.5, 15.5, 26); look = F(2.8, 13.5, 0); camSpeed = 1;
+    if (T > 3.6) { f.nod = null; next('orbit'); startOrbit(); }
   } else if (f.phase === 'orbit') {            // the planet comes back, and everyone circles it together
     const T = f.t;
     // the cake melts away and the planet grows back where it was
@@ -1580,7 +1608,17 @@ function updateFinale(dt, t) {
       const e = ease(clamp((T - 1.2 - k * 0.05) / 3.2, 0, 1));   // glide from wherever they are into the ring
       it.obj.position.copy(it.from).lerp(pos, e);
       it.obj.quaternion.copy(it.fromQ).slerp(q, e);
-      if (it.spin) it.obj.rotateY(Math.sin(t * 0.9 + k) * 0.25 * e);
+      if (it.spin) {   // zero gravity: they can't steady themselves — tipping, kicking, flapping, trying to stay upright
+        const sd = it.seed, tt = t + sd;
+        const tipX = Math.sin(tt * 1.7) * 0.55 + Math.sin(tt * 4.3) * 0.18;
+        const tipZ = Math.sin(tt * 1.3 + 1) * 0.65 + Math.sin(tt * 3.7) * 0.2;
+        const lurch = Math.pow(Math.max(0, Math.sin(tt * 0.55)), 12) * 2.2;   // every so often a big tumble, then they flail back upright
+        it.obj.rotateY(Math.sin(tt * 0.6) * 0.9 * e);
+        it.obj.rotateX((tipX + lurch) * e); it.obj.rotateZ(tipZ * e);
+        for (const [j, f] of (it.ch.feet || []).entries()) f.rotation.x = Math.sin(tt * 15 + j * Math.PI) * 0.9 * e;   // frantic little kicks
+        for (const [j, l] of it.ch.leaves.entries()) l.rotation.x = Math.sin(tt * 11 + j * 1.7) * 0.45 * e;           // leaves flapping like arms
+        it.ch.root.position.y = Math.sin(tt * 6) * 0.08 * e;
+      }
       it.obj.scale.setScalar(lerp(it.fromS, it.s, e));
     });
     const ep = ease(clamp(T / 1.6, 0, 1));
@@ -1593,17 +1631,18 @@ function updateFinale(dt, t) {
   // night falls once she leaves the ground
   if (f.phase !== 'lift' || f.t > 2.5) { const nk = 1 - Math.exp(-dt * 0.7); sky.material.uniforms.uTop.value.lerp(SKY.nightTop, nk); sky.material.uniforms.uBottom.value.lerp(SKY.nightBottom, nk); starsMat.opacity = Math.min(1, starsMat.opacity + dt * 0.25); }
   // she turns to face the cake (the meet phase handles her turn toward him)
-  if (!['meet', 'kiss', 'orbit'].includes(f.phase)) {
+  if (!['meet', 'bite', 'orbit'].includes(f.phase)) {
     const rel = cake.localToWorld(V(0, CAKE_TOP, 0)).sub(girl.root.position).applyQuaternion(f.fq.clone().invert());
     const target = cake.visible ? Math.atan2(rel.x, rel.z) : 0;
     f.gy = lerp(f.gy || 0, target, 1 - Math.exp(-dt * 3));
     girl.root.quaternion.copy(f.fq).multiply(tq.setFromAxisAngle(AY, f.gy));
   }
-  animateCharacter(girl, t, 0, 'fly');
+  animateCharacter(girl, t, 0, f.phase === 'bite' ? 'hug' : 'fly');
+  if (f.nod != null) girl.parts.head.rotation.x = f.nod;
 
   // candles flicker, lean away when she blows, and go out
   f.gust = Math.max(0, (f.gust || 0) - dt * 3);
-  const blownOut = ['blown', 'awaitCut', 'cut', 'beanRise', 'beanWait', 'beanOpen', 'struggle', 'meet', 'kiss', 'orbit'].includes(f.phase);
+  const blownOut = ['blown', 'awaitCut', 'cut', 'beanRise', 'beanWait', 'beanOpen', 'struggle', 'meet', 'bite', 'orbit'].includes(f.phase);
   for (const [k, fl] of flames.entries()) {
     if (blownOut && fl.out < 1) {
       if (fl.out === 0) puff(fl.half.localToWorld(fl.base.clone().add(V(0, 0.6, 0))), V(0, 2, 0).applyQuaternion(f.fq), 1.2, 1.6, 0xd8d4de);

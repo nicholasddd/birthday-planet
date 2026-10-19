@@ -37,10 +37,12 @@ function fuzzy(parent, core, shell, [x, y, z], [sx, sy, sz], [rx = 0, ry = 0, rz
 export function makeCabbageChicken(flowerColor) {
   const root = new THREE.Group();     // feet at y = 0, facing +Z
 
+  const feet = [];
   fuzzy(root, furM, furShellM, [0, 0.6, 0], [0.68, 0.58, 0.62]);                         // round fluffy body
   for (const s of [-1, 1]) {
     fuzzy(root, furM, furShellM, [0.64 * s, 0.55, -0.02], [0.13, 0.3, 0.32], [0, 0, 0.3 * s]);   // stubby wings
-    fuzzy(root, 0xf1a43a, null, [0.2 * s, 0.03, 0.14], [0.11, 0.04, 0.15]);                        // feet
+    const foot = new THREE.Group(); foot.position.set(0.2 * s, 0.1, 0.08); root.add(foot); feet.push(foot);   // feet can kick on their own
+    fuzzy(foot, 0xf1a43a, null, [0, -0.07, 0.06], [0.11, 0.04, 0.15]);
     fuzzy(root, 0x2a2030, null, [0.2 * s, 0.75, 0.56], [0.036, 0.013, 0.02], [0, 0.35 * s, 0.12 * s]); // sleepy slit eyes
   }
   fuzzy(root, 0xf2cd3c, null, [0, 0.66, 0.6], [0.12, 0.1, 0.15], [0.2, 0, 0]);               // little yellow beak
@@ -74,6 +76,6 @@ export function makeCabbageChicken(flowerColor) {
   head.add(new THREE.Mesh(tinted(new THREE.SphereGeometry(0.05, 8, 6), 0xffe066), detailM));
 
   // merge the static parts so each chouchou is a handful of draw calls
-  bake(root, [mouth, ...leaves]); bake(envelope); bake(flower);
-  return { root, mouth, envelope, flower, leaves };
+  bake(root, [mouth, ...leaves, ...feet]); bake(envelope); bake(flower);
+  return { root, mouth, envelope, flower, leaves, feet };
 }

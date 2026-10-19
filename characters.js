@@ -138,6 +138,12 @@ export function animateCharacter(ch, t, walk, pose = 'walk') {
     ch.rig.position.y = Math.sin(t * 2) * 0.1;
     return;
   }
+  if (pose === 'hug') {             // arms wrapped round something in front of her
+    for (const [k, s] of [['shL', 1], ['shR', -1]]) { p[k].rotation.x = lerp(p[k].rotation.x, -1.25, 0.2); p[k].rotation.z = lerp(p[k].rotation.z, -0.35 * s, 0.2); }
+    p.hipL.rotation.x = Math.sin(t * 3) * 0.25 - 0.2; p.hipR.rotation.x = -Math.sin(t * 3) * 0.25 - 0.2;   // happy little leg swing
+    ch.rig.rotation.z = 0; ch.rig.position.y = 0;
+    return;
+  }
   if (pose === 'reach' || pose === 'offer') {   // reaching up to pick a berry / holding one out
     const up = pose === 'reach';
     for (const [k, s] of [['shL', 1], ['shR', -1]]) { p[k].rotation.z = lerp(p[k].rotation.z, s * (up ? 2.3 : 0.25), 0.3); p[k].rotation.x = lerp(p[k].rotation.x, up ? -0.4 : -1.35, 0.3); }

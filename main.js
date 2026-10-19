@@ -69,7 +69,7 @@ const sky = new THREE.Mesh(new THREE.SphereGeometry(420, 32, 16), new THREE.Shad
   uniforms: { uTop: { value: SKY.dayTop.clone() }, uBottom: { value: SKY.dayBottom.clone() }, uUp: { value: new THREE.Vector3(0, 1, 0) } },
   vertexShader: `varying vec3 vDir; void main() { vDir = (modelMatrix * vec4(position, 1.0)).xyz - cameraPosition; gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0); }`,
   fragmentShader: `uniform vec3 uTop; uniform vec3 uBottom; uniform vec3 uUp; varying vec3 vDir;
-    void main() { float h = dot(normalize(vDir), uUp); gl_FragColor = vec4(mix(uBottom, uTop, smoothstep(-0.25, 0.75, h)), 1.0); }`,
+    void main() { float h = dot(normalize(vDir), uUp); gl_FragColor = vec4(mix(uBottom, uTop, smoothstep(-0.2, 0.55, h)), 1.0); }`,
 }));
 sky.renderOrder = -1;
 scene.add(sky);
@@ -87,19 +87,45 @@ scene.add(hemi);
 const sun = new THREE.DirectionalLight(0xfff4e6, 1.6);
 sun.castShadow = true;
 sun.shadow.mapSize.set(2048, 2048);
-Object.assign(sun.shadow.camera, { left: -28, right: 28, top: 28, bottom: -28, near: 1, far: 140 });
+Object.assign(sun.shadow.camera, { left: -28, right: 28, top: 28, bottom: -28, near: 1, far: 200 });
 sun.shadow.bias = -0.0005;
 sun.shadow.radius = 5;
 scene.add(sun, sun.target);
 
-// stars (only shown when night falls in the finale)
-const starsMat = new THREE.PointsMaterial({ color: 0xfff6e0, size: 1.3, sizeAttenuation: true, transparent: true, opacity: 0, fog: false });
+// stars: a field of small ones plus a few big bright ones that catch the glow (shown at night)
+const starDot = (() => {
+  const c = document.createElement('canvas'); c.width = c.height = 32;
+  const x = c.getContext('2d'), g = x.createRadialGradient(16, 16, 0, 16, 16, 16);
+  g.addColorStop(0, 'rgba(255,255,255,1)'); g.addColorStop(0.3, 'rgba(255,255,255,.8)'); g.addColorStop(1, 'rgba(255,255,255,0)');
+  x.fillStyle = g; x.fillRect(0, 0, 32, 32);
+  return new THREE.CanvasTexture(c);
+})();
+const starsMat = new THREE.PointsMaterial({ color: 0xfff6e0, map: starDot, size: 3.2, sizeAttenuation: true, transparent: true, opacity: 0, fog: false, depthWrite: false, toneMapped: false });
+const starsBigMat = starsMat.clone(); starsBigMat.size = 8; starsBigMat.color.setRGB(1.9, 1.85, 1.7);
 {
-  const g = new THREE.BufferGeometry(), pts = [], rng = mulberry32(7);
-  for (let i = 0; i < 1500; i++) pts.push(...randDir(rng).multiplyScalar(250 + rng() * 100).toArray());
-  g.setAttribute('position', new THREE.Float32BufferAttribute(pts, 3));
-  scene.add(new THREE.Points(g, starsMat));
+  const rng = mulberry32(7);
+  for (const [n, mat] of [[1400, starsMat], [140, starsBigMat]]) {
+    const g = new THREE.BufferGeometry(), pts = [];
+    for (let i = 0; i < n; i++) pts.push(...randDir(rng).multiplyScalar(250 + rng() * 100).toArray());
+    g.setAttribute('position', new THREE.Float32BufferAttribute(pts, 3));
+    const p = new THREE.Points(g, mat); p.renderOrder = -1; scene.add(p);
+  }
 }
+// now and then at night, a shooting star streaks across whatever part of the sky she's looking at
+const shooting = new THREE.Sprite(new THREE.SpriteMaterial({
+  map: (() => {
+    const c = document.createElement('canvas'); c.width = 256; c.height = 16;
+    const x = c.getContext('2d'), g = x.createLinearGradient(0, 0, 256, 0);
+    g.addColorStop(0, 'rgba(255,255,255,0)'); g.addColorStop(0.85, 'rgba(255,250,235,.7)'); g.addColorStop(1, 'rgba(255,255,255,1)');
+    x.fillStyle = g; x.beginPath(); x.moveTo(0, 8); x.lineTo(250, 3); x.arc(250, 8, 5, -Math.PI / 2, Math.PI / 2); x.lineTo(0, 8); x.fill();
+    return new THREE.CanvasTexture(c);
+  })(),
+  color: new THREE.Color(2, 1.95, 1.8), transparent: true, depthWrite: false, fog: false, toneMapped: false, opacity: 0,
+}));
+shooting.center.set(1, 0.5);   // the bright head sits on the position, the tail trails behind
+shooting.visible = false;
+scene.add(shooting);
+const shoot = { wait: 4, t: 0, life: 0, vel: V() };
 
 // ============================================================ textures
 function canvasTex(w, h, draw) {
@@ -690,6 +716,10 @@ if (DEBUG) {
   add('+1 hour', () => setOff(timeOffset + HOUR));
   add('Unlock all', () => setOff(startMs + TOTAL * HOUR - Date.now()));
   add('Collect all → finale', () => { for (let i = 0; i < TOTAL; i++) if (!collected.has(i)) freeChicken(i, true); for (const r of roamers) if (r.mode === 'present') receiveFrom(r, true); updateTimeUI(); startFinale(); });
+  add('Sky: cycle night → dawn → noon → dusk → real', () => {
+    const seq = [0, 6.3, 12, 17.9, null], i = seq.indexOf(skyHourOverride);
+    skyHourOverride = seq[(i + 1) % seq.length]; toast(skyHourOverride === null ? 'Sky follows the clock' : `Sky at ${skyHourOverride}h`);
+  });
   add('Planet view on/off', () => { overview = !overview; });
   add('Teleport to a chouchou', () => {
     const b = buried.values().next().value || roamers[0]?.group; if (!b) return toast('No chouchous right now');
@@ -1716,6 +1746,91 @@ function watchQuality(realDt) {
 }
 applyQuality();
 
+// ============================================================ time of day
+// The sky follows the real clock in her timezone: starry night, a peachy sunrise, a bright sunny
+// day with crisp shadows, a warm sunset, then night again.
+const LOOKS = {
+  night: { top: 0x0a1033, bottom: 0x272f6b, hemi: 0x8796e0, ground: 0x2b3a44, hemiI: 0.55, sun: 0xa9bbff, sunI: 0.75, stars: 1, soft: 6, exp: 1, cloud: 0.06 },
+  dawn:  { top: 0x4660b0, bottom: 0xffb790, hemi: 0xffdcc8, ground: 0x7c8a5c, hemiI: 0.8, sun: 0xffb27c, sunI: 1.5, stars: 0.12, soft: 4, exp: 1, cloud: 0.3 },
+  day:   { top: 0x0848c0, bottom: 0x4fa8f2, hemi: 0xeaf5ff, ground: 0x8fb872, hemiI: 0.78, sun: 0xfff1d8, sunI: 2.5, stars: 0, soft: 1.5, exp: 1.05, cloud: 0.42 },
+  // the finale keeps its own lighting (the night sky there is handled by the finale itself)
+  finale: { hemi: 0xeaf5ff, ground: 0x8fb872, hemiI: 1.05, sun: 0xfff4e6, sunI: 1.6, soft: 5, exp: 1, cloud: 0.42 },
+};
+for (const L of Object.values(LOOKS)) for (const k of ['top', 'bottom', 'hemi', 'ground', 'sun']) if (L[k] !== undefined) L[k] = new THREE.Color(L[k]);
+// sunrise ~06:15, sunset ~17:50 in Bangkok in mid-November
+const KEYS = [[0, 'night'], [5.2, 'night'], [6.3, 'dawn'], [7.6, 'day'], [16.6, 'day'], [17.9, 'dawn'], [19, 'night'], [24, 'night']];
+const startHour = (() => {   // hour-of-day of startTime in her timezone (fixed offset, Thailand has no DST)
+  try {
+    const p = new Intl.DateTimeFormat('en-GB', { hour: 'numeric', minute: 'numeric', hourCycle: 'h23', timeZone: CONFIG.timeZone }).formatToParts(new Date(startMs));
+    return +p.find(x => x.type === 'hour').value + +p.find(x => x.type === 'minute').value / 60;
+  } catch { return 0; }
+})();
+let skyHourOverride = null;
+const hourOfDay = () => skyHourOverride ?? ((((now() - startMs) / HOUR + startHour) % 24) + 24) % 24;
+const look = { top: new THREE.Color(), bottom: new THREE.Color(), hemi: new THREE.Color(), ground: new THREE.Color(), sun: new THREE.Color() };
+function lookAt(h) {
+  let i = 0; while (KEYS[i + 1][0] < h) i++;
+  const [h0, a] = KEYS[i], [h1, b] = KEYS[i + 1], A = LOOKS[a], B = LOOKS[b];
+  const k = THREE.MathUtils.smoothstep(h, h0, h1);
+  for (const c of ['top', 'bottom', 'hemi', 'ground', 'sun']) look[c].copy(A[c]).lerp(B[c], k);
+  for (const n of ['hemiI', 'sunI', 'stars', 'soft', 'exp', 'cloud']) look[n] = lerp(A[n], B[n], k);
+  return look;
+}
+const sunSide = V(), camDirV = V();
+let cloudMat = null;   // the elephant clouds glow softly by day and dim down at night
+cloudPivot.traverse(o => { if (o.isMesh && o.material.emissive && !cloudMat) cloudMat = o.material; });
+let skySnap = true;   // jump straight to the right look on the first frame
+function updateSky(dt) {
+  const nk = skySnap ? 1 : 1 - Math.exp(-dt * 0.6), u = sky.material.uniforms;
+  const h = hourOfDay(), dayT = clamp((h - 6) / 12, 0, 1);
+  const L = waitingMode ? lookAt(0) : lookAt(h);
+  if (state !== 'finale') {
+    u.uTop.value.lerp(L.top, nk); u.uBottom.value.lerp(L.bottom, nk);
+    starsMat.opacity = lerp(starsMat.opacity, L.stars, nk);
+  }
+  const T = state === 'finale' ? LOOKS.finale : L;
+  hemi.color.lerp(T.hemi, nk); hemi.groundColor.lerp(T.ground, nk);
+  hemi.intensity = lerp(hemi.intensity, T.hemiI, nk);
+  sun.color.lerp(T.sun, nk); sun.intensity = lerp(sun.intensity, T.sunI, nk);
+  sun.shadow.radius = lerp(sun.shadow.radius, T.soft, nk);
+  renderer.toneMappingExposure = lerp(renderer.toneMappingExposure, T.exp, nk);
+  starsBigMat.opacity = starsMat.opacity;
+  if (cloudMat) cloudMat.emissiveIntensity = lerp(cloudMat.emissiveIntensity, T.cloud, nk);
+  // the sun stays on the camera's side so she's always lit, but swings across through the day:
+  // low from one side in the morning (long shadows), high at noon, low from the other side at sunset
+  camDirV.copy(camera.position).normalize();
+  sunSide.crossVectors(camDirV, camera.up).normalize();
+  const day = state !== 'finale' && !waitingMode && h > 5.5 && h < 18.5;
+  const swing = day ? Math.cos(dayT * Math.PI) * 75 : 25, lift = day ? lerp(20, 45, Math.sin(dayT * Math.PI)) : 25;
+  sun.userData.swing = lerp(sun.userData.swing ?? swing, swing, nk); sun.userData.lift = lerp(sun.userData.lift ?? lift, lift, nk);
+  sun.position.copy(camDirV).multiplyScalar(60).addScaledVector(sunSide, sun.userData.swing).addScaledVector(camera.up, sun.userData.lift);
+  skySnap = false;
+  updateShootingStar(dt);
+}
+function updateShootingStar(dt) {
+  const m = shooting.material;
+  if (shooting.visible) {
+    shoot.t += dt;
+    const k = shoot.t / shoot.life;
+    shooting.position.addScaledVector(shoot.vel, dt);
+    m.opacity = Math.sin(Math.min(1, k) * Math.PI) * starsMat.opacity;
+    shooting.scale.set(lerp(8, 34, Math.min(1, k * 2.5)), 0.9, 1);
+    if (k >= 1) { shooting.visible = false; shoot.wait = 5 + Math.random() * 12; }
+    return;
+  }
+  if (starsMat.opacity < 0.5 || (shoot.wait -= dt) > 0) return;
+  // start somewhere in the upper part of the view and fall diagonally across it
+  const fwd = V(), right = V(), up = V();
+  camera.matrixWorld.extractBasis(right, up, fwd); fwd.negate();
+  const dir = Math.random() < 0.5 ? 1 : -1, ang = -(0.25 + Math.random() * 0.35);   // slope, in screen terms
+  shooting.position.copy(camera.position).addScaledVector(fwd, 220)
+    .addScaledVector(up, 45 + Math.random() * 45).addScaledVector(right, (-dir) * (40 + Math.random() * 90));
+  shoot.vel.copy(right).multiplyScalar(Math.cos(ang) * dir).addScaledVector(up, Math.sin(ang)).multiplyScalar(150 + Math.random() * 60);
+  m.rotation = dir > 0 ? ang : Math.PI - ang;
+  shoot.t = 0; shoot.life = 0.9 + Math.random() * 0.5; shooting.visible = true;
+}
+if (DEBUG) { window.__hour = h => { skyHourOverride = h; }; window.__shoot = () => { shoot.wait = 0; }; }
+
 // ============================================================ loop
 const clock = new THREE.Clock();
 let simT = 0;
@@ -1738,15 +1853,7 @@ function step(dt, t) {
     c.userData.base ??= c.position.clone();
     c.position.copy(c.userData.base).multiplyScalar(1 + 0.012 * Math.sin(t * 0.8 + (c.userData.bob || 0)));
   }
-  // keep the sun roughly behind the camera so the visible side is always lit
-  const camDir = camera.position.clone().normalize();
-  const side = V().crossVectors(camDir, camera.up).normalize();
-  sun.position.copy(camDir).multiplyScalar(60).addScaledVector(side, 25).addScaledVector(camera.up, 25);
-  if (state !== 'finale') {   // night while the planet sleeps, day once it wakes
-    const nk = 1 - Math.exp(-dt * 0.6), u = sky.material.uniforms;
-    u.uTop.value.lerp(waitingMode ? SKY.nightTop : SKY.dayTop, nk); u.uBottom.value.lerp(waitingMode ? SKY.nightBottom : SKY.dayBottom, nk);
-    starsMat.opacity = lerp(starsMat.opacity, waitingMode ? 1 : 0, nk);
-  }
+  updateSky(dt);
   hemi.position.copy(camera.up);   // sky light always comes from her "up"
   sky.position.copy(camera.position);
   sky.material.uniforms.uUp.value.copy(camera.up);

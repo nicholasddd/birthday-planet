@@ -583,9 +583,9 @@ function turn(d, step) {
   clearTimeout(d.wrap);
   d.wrap = setTimeout(() => { if (d.pos < 5 || d.pos > 24) { d.pos = 10 + dialValue(d); renderDial(d, true); } }, 260);   // seamless wrap
   $('gateMsg').textContent = '';
-  checkLock();
 }
 let unlocking = false;
+// only checked when she presses "Open"
 function checkLock() {
   const [a, b, c, e] = dials.map(dialValue), day = a * 10 + b, month = c * 10 + e;
   if (day === CONFIG.birthday.day && month === CONFIG.birthday.month) {
@@ -595,8 +595,10 @@ function checkLock() {
       tone(784, 0, 0.6, 0.08, 'triangle'); tone(1046.5, 0.12, 0.7, 0.08, 'triangle'); tone(1568, 0.26, 0.9, 0.07, 'triangle');
       store.set('bday-unlocked', '1');
       setTimeout(() => welcome(false), 1100);
-    }, 250);
+    }, 150);
+    return true;
   }
+  return false;
 }
 for (const d of dials) {
   renderDial(d, true);
@@ -628,12 +630,14 @@ for (const d of dials) {
     else if (e.key === 'ArrowLeft') { dials[Math.max(0, d.i - 1)].el.focus(); e.preventDefault(); }
     else if (e.key === 'ArrowRight') { dials[Math.min(3, d.i + 1)].el.focus(); e.preventDefault(); }
     else if (/^[0-9]$/.test(e.key)) { turn(d, Number(e.key) - dialValue(d)); dials[Math.min(3, d.i + 1)].el.focus(); }
+    else if (e.key === 'Enter') { e.preventDefault(); $('gate').requestSubmit(); }
     e.stopPropagation();
   });
 }
 $('gate').onsubmit = e => {
   e.preventDefault();
   if (unlocking) return;
+  if (checkLock()) return;
   $('gateMsg').textContent = 'Hmm… the planet doesn\'t recognise that date.';
   $('gate').classList.remove('shake'); void $('gate').offsetWidth; $('gate').classList.add('shake');
 };

@@ -269,7 +269,7 @@ function updateWaterhole(dt) {
   world.stage.group.add(statue);
   world.stage.group.updateMatrixWorld(true);
   const sp = statue.getWorldPosition(V()).normalize();
-  obstacles.push({ dir: sp, rad: 1.9, top: world.stage.top + 4.2, plat: 0 });
+  obstacles.push({ dir: sp, rad: 1.9, top: world.stage.top + 4.2, plat: 0, solid: true });
 }
 
 // ============================================================ berries
@@ -806,10 +806,20 @@ function floorAt(d, feet) {
   return f;
 }
 let faceYaw = 0, faceTarget = 0;   // which way she visually faces, relative to the camera's heading
+// she starts each visit on the stone stage, with the carved chouchou in view just ahead
+{
+  const g = world.stage.group, r = world.stage.r;
+  const d = g.localToWorld(V(r * 0.3, 0, r * 0.55)).normalize(), sd = g.localToWorld(V(r * 0.4, 0, -r * 0.42)).normalize();   // looking just past it, so it isn't hidden behind her
+  pq.setFromUnitVectors(AY, d);
+  const f = V(0, 0, 1).applyQuaternion(pq), to = sd.clone().addScaledVector(d, -sd.dot(d)).normalize();
+  pq.premultiply(tq.setFromAxisAngle(d, Math.atan2(V().crossVectors(f, to).dot(d), f.dot(to))));
+  girlH = world.stage.top;
+  camera.position.set(0, R + 7, -11).applyQuaternion(pq); camLook.set(0, R + 1.5, 4).applyQuaternion(pq);
+}
 
-function blocked(oldDir, newDir, pad = 0.35, feet = -Infinity) {
+function blocked(oldDir, newDir, pad = 0.35, feet = -Infinity, solidOnly = false) {
   for (const o of obstacles) {
-    if (feet > o.top - 0.15) continue;   // she's above it (mid-jump or standing on it)
+    if (feet > o.top - 0.15 || (solidOnly && !o.solid)) continue;   // she's above it (mid-jump or standing on it)
     const dn = o.dir.angleTo(newDir) * R;
     if (dn < o.rad + pad && dn < o.dir.angleTo(oldDir) * R) return true;
   }
@@ -1089,15 +1099,18 @@ function updateChickens(dt, t) {
       } else if (r.mode === 'approach') {         // waddle over to her
         if (toGirl > 1.35 && r.t < 5) {
           // head straight for her; squeeze past trees when close, otherwise side-step around them
+          // (the stone stage is solid: if she's up there, it waits at the edge and cuddles from there)
           const od = AY.clone().applyQuaternion(r.q);
+          let stepped = false;
           for (const side of [0, 0.9, -0.9, 1.6, -1.6]) {
             const nq = r.q.clone().multiply(tq.setFromAxisAngle(AY, side)).multiply(tq.setFromAxisAngle(AX, (3.2 * dt) / R));
             const nd = AY.clone().applyQuaternion(nq);
-            if ((toGirl < 3 || !blocked(od, nd, 0.3)) && !world.standHeight(nd).wet) {
+            if (!blocked(od, nd, 0.45, -Infinity, toGirl < 3) && !world.standHeight(nd).wet) {
               r.q.copy(nq).multiply(tq.setFromAxisAngle(AY, -side)).normalize();
-              break;
+              stepped = true; break;
             }
           }
+          if (!stepped && toGirl < 6) { r.mode = 'cuddle'; r.t = 0; r.cuddleD = toGirl; }
           root.position.y = Math.abs(Math.sin(t * 13 + r.phase)) * 0.2;
           root.rotation.z = Math.sin(t * 13 + r.phase) * 0.14;
         } else { r.mode = 'cuddle'; r.t = 0; r.cuddleD = toGirl; }

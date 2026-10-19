@@ -355,7 +355,7 @@ export function buildPlanet(seed = 1) {
     group.add(stage);
   }
   const stageTop = heightAt(stageDir) - 0.35 + STAGE_H + 0.35;
-  obstacles.push({ dir: stageDir, rad: STAGE_R, top: stageTop, plat: STAGE_R - 0.1 });
+  obstacles.push({ dir: stageDir, rad: STAGE_R + 0.6, top: stageTop, plat: STAGE_R - 0.1, solid: true });   // rad covers the flared, lobed base
   const nearStage = (d, pad) => d.angleTo(stageDir) * R < STAGE_R + pad;
 
   // ---------------------------------------------------------------- topiary trees, bushes & mounds

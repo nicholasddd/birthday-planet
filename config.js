@@ -4,7 +4,7 @@
 
 export const CONFIG = {
   // Her name, shown on the intro + ending screens
-  herName: 'My Love',
+  herName: 'My Baobao',
 
   // How each letter is signed, and the little crest at the top of the paper / on the wax seal
   fromName: 'Your boy',

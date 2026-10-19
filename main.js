@@ -470,7 +470,7 @@ function openLetter(i) {
   const L = CONFIG.letters[i] || {};
   $('letterHour').textContent = `chouchou ${i + 1} of ${TOTAL}`;
   $('mono').textContent = $('sealMono').textContent = CONFIG.monogram || '♥';
-  $('letterGreet').textContent = `My dearest ${CONFIG.herName},`;
+  $('letterGreet').textContent = `My dearest ${CONFIG.herName.replace(/^my\s+/i, '')},`;
   $('letterFrom').textContent = CONFIG.fromName || '';
   $('letterText').textContent = L.text || '';
   $('letterFlower').innerHTML = flowerSVG('#' + new THREE.Color(PALETTE[i % PALETTE.length]).getHexString());
@@ -1229,22 +1229,82 @@ const knife = new THREE.Group(); knife.visible = false; cake.add(knife);
   handle.position.set(0, 0.3, 15.5);
   knife.add(blade, handle);
 }
-// the mysterious red bean (it opens like a little clam)
-const bean = new THREE.Group(); bean.visible = false; cake.add(bean);
-const beanLid = new THREE.Group();
+// the mysterious strawberry — plump, glossy and juicy — with him curled up inside it like a turtle
+const bean = new THREE.Group(); bean.visible = false; cake.add(bean);   // (still called "bean" in the phase names)
+const berryBody = new THREE.Group(); bean.add(berryBody);
+const sb = {};   // strawberry-boy parts: head, arms, legs
 {
-  const outM = new THREE.MeshPhysicalMaterial({ color: 0x9e1b2c, roughness: 0.3, clearcoat: 1, clearcoatRoughness: 0.15, sheen: 0.3, sheenColor: new THREE.Color(0xff8090) });
-  const inM = new THREE.MeshStandardMaterial({ color: 0xf6e6cf, roughness: 0.8, side: THREE.BackSide });
-  const shell = new THREE.Group(); shell.scale.set(4.2, 2.9, 3.0); bean.add(shell);
-  const bottomG = new THREE.SphereGeometry(1, 48, 24, 0, Math.PI * 2, Math.PI / 2, Math.PI / 2);
-  const topG = new THREE.SphereGeometry(1, 48, 24, 0, Math.PI * 2, 0, Math.PI / 2);
-  shell.add(new THREE.Mesh(bottomG, outM), new THREE.Mesh(bottomG, inM));
-  beanLid.position.set(0, 0, -1); shell.add(beanLid);        // hinge at the back
-  const lid = new THREE.Group(); lid.position.set(0, 0, 1); beanLid.add(lid);
-  lid.add(new THREE.Mesh(topG, outM), new THREE.Mesh(topG, inM));
-  const hilum = new THREE.Mesh(new THREE.CapsuleGeometry(0.05, 0.5, 4, 10), new THREE.MeshStandardMaterial({ color: 0xfff6ea }));
-  hilum.rotation.z = Math.PI / 2; hilum.position.set(0, 0.04, 0.99); lid.add(hilum);
+  const BS = 3.6; berryBody.scale.setScalar(BS);
+  // the berry: a plump lathe shape, deep red at the bottom, paler "shoulders" under the leaves
+  const prof = [[0, -1.15], [0.3, -1.05], [0.62, -0.72], [0.88, -0.28], [0.98, 0.12], [0.95, 0.45], [0.8, 0.72], [0.52, 0.9], [0.22, 0.98], [0, 1.0]];
+  const g = new THREE.LatheGeometry(prof.map(([x, y]) => new THREE.Vector2(x, y)), 48);
+  { const p = g.attributes.position, col = new Float32Array(p.count * 3), c = new THREE.Color();
+    const deep = new THREE.Color(0xc8102e), red = new THREE.Color(0xef2d45), pale = new THREE.Color(0xffc9c2);
+    for (let i = 0; i < p.count; i++) {
+      const y = p.getY(i);
+      c.copy(deep).lerp(red, THREE.MathUtils.smoothstep(y, -1.1, 0.2)).lerp(pale, THREE.MathUtils.smoothstep(y, 0.72, 0.98));
+      c.toArray(col, i * 3);
+    }
+    g.setAttribute('color', new THREE.BufferAttribute(col, 3)); }
+  const berryM = new THREE.MeshPhysicalMaterial({ vertexColors: true, roughness: 0.22, clearcoat: 1, clearcoatRoughness: 0.08, sheen: 0.4, sheenColor: new THREE.Color(0xff8a9a) });
+  const skin = new THREE.Group(); berryBody.add(skin);
+  skin.add(new THREE.Mesh(g, berryM));
+  // golden seeds, spiralling round the surface
+  const rAt = y => { for (let k = 1; k < prof.length; k++) if (y <= prof[k][1]) { const [x0, y0] = prof[k - 1], [x1, y1] = prof[k]; return x0 + (x1 - x0) * (y - y0) / (y1 - y0); } return 0; };
+  const seedG = new THREE.SphereGeometry(0.036, 6, 4).scale(1, 1.3, 0.5), seedM = new THREE.MeshStandardMaterial({ color: 0xf8d35e, roughness: 0.5 });
+  for (let k = 0; k < 90; k++) {
+    const y = -0.92 + (k / 90) * 1.62, a = k * 2.39996, r = rAt(y) * 0.985;
+    const seed = new THREE.Mesh(seedG, seedM); seed.position.set(Math.sin(a) * r, y, Math.cos(a) * r);
+    seed.lookAt(seed.position.clone().multiplyScalar(2)); seed.rotateX(Math.PI / 2); skin.add(seed);
+  }
+  // leafy green top + stem
+  const leafM = new THREE.MeshStandardMaterial({ color: 0x4fa83a, roughness: 0.7 });
+  for (let k = 0; k < 8; k++) {
+    const a = (k / 8) * Math.PI * 2, leaf = new THREE.Mesh(new THREE.SphereGeometry(0.3, 12, 8), leafM);
+    leaf.scale.set(0.38, 0.07, 1); leaf.position.set(Math.sin(a) * 0.3, 0.99, Math.cos(a) * 0.3); leaf.rotation.set(0, a, 0); leaf.rotateX(0.35); skin.add(leaf);
+  }
+  const stem = new THREE.Mesh(new THREE.CylinderGeometry(0.05, 0.07, 0.36, 8), leafM); stem.position.set(0.03, 1.15, 0); stem.rotation.z = -0.25; skin.add(stem);
+  bake(skin);
+  // his head pokes out of the front, arms out the sides, little legs out the bottom
+  const head = makeChibi(CONFIG.boy, false).parts.head;
+  head.parent.remove(head); head.scale.setScalar(1.08); berryBody.add(head); sb.head = head;
+  const sweater = new THREE.MeshStandardMaterial({ color: CONFIG.boy.outfit, roughness: 0.9 }), skinM = new THREE.MeshStandardMaterial({ color: CONFIG.boy.skin, roughness: 0.8 });
+  const pants = new THREE.MeshStandardMaterial({ color: CONFIG.boy.pants ?? 0x3e4a63, roughness: 0.9 }), bootM = new THREE.MeshStandardMaterial({ color: CONFIG.boy.boots, roughness: 0.8 });
+  sb.arms = [-1, 1].map(sd => {
+    const pv = new THREE.Group(); pv.position.set(0.8 * sd, 0.05, 0.3); berryBody.add(pv);
+    const arm = new THREE.Mesh(new THREE.CapsuleGeometry(0.11, 0.26, 6, 10), sweater); arm.position.y = -0.2; pv.add(arm);
+    const hand = new THREE.Mesh(new THREE.SphereGeometry(0.085, 10, 8), skinM); hand.position.y = -0.4; pv.add(hand);
+    pv.userData.side = sd; return pv;
+  });
+  sb.legs = [-1, 1].map(sd => {
+    const pv = new THREE.Group(); pv.position.set(0.36 * sd, -0.8, 0.32); berryBody.add(pv);
+    const leg = new THREE.Mesh(new THREE.CapsuleGeometry(0.1, 0.14, 6, 10), pants); leg.position.y = -0.14; pv.add(leg);
+    const boot = new THREE.Mesh(new THREE.SphereGeometry(0.12, 12, 8), bootM); boot.scale.set(1, 0.72, 1.3); boot.position.set(0, -0.3, 0.04); pv.add(boot);
+    pv.userData.side = sd; return pv;
+  });
   shadowAll(bean);
+  sb.pop = [0, 0, 0];
+}
+// pose the strawberry boy: pop = how far head/arms/legs are out (0–1), wiggle = how much he's struggling
+function poseBerryBoy(t, wiggle) {
+  const [ph, pa, pl] = sb.pop;
+  const eh = easeOutBack(ph);
+  sb.head.position.set(0, lerp(0.15, 0.55, eh), lerp(0.1, 0.82, eh));
+  sb.head.scale.setScalar(Math.max(0.001, 1.08 * Math.min(1, ph * 1.4)));
+  sb.head.rotation.set(-0.15 * eh, Math.sin(t * 3.2) * 0.35 * wiggle, Math.sin(t * 5) * 0.12 * wiggle);
+  for (const a of sb.arms) {
+    a.scale.setScalar(Math.max(0.001, easeOutBack(pa)));
+    a.rotation.z = a.userData.side * (1.25 + Math.sin(t * 14 + a.userData.side) * 0.55 * wiggle);
+    a.rotation.x = -0.3 + Math.sin(t * 11 + a.userData.side * 2) * 0.4 * wiggle;
+  }
+  for (const l of sb.legs) {
+    l.scale.setScalar(Math.max(0.001, easeOutBack(pl)));
+    l.rotation.x = -0.25 + Math.sin(t * 16 + l.userData.side * 1.6) * 0.7 * wiggle;
+    l.rotation.z = l.userData.side * 0.25;
+  }
+  berryBody.rotation.z = Math.sin(t * 9) * 0.14 * wiggle;
+  berryBody.rotation.x = Math.sin(t * 7) * 0.06 * wiggle;
+  berryBody.position.y = Math.abs(Math.sin(t * 7)) * 0.35 * wiggle;
 }
 
 // ============================================================ finale
@@ -1302,7 +1362,7 @@ function startFinale() {
   noiseSound(2.5, 500, 0.05, 1.5);
 }
 function next(phase) { finale.phase = phase; finale.t = 0; }
-const KISS_G = () => F(-16.6, 15, 6), KISS_B = () => F(-12.4, 15, 6);   // facing each other, close enough to kiss
+const KISS_G = () => bean.localToWorld(V(-3.9, -2.7, 2.5));   // where she floats so her lips meet his cheek
 const KISS_YAW = 1.12;   // turned toward each other, but angled to the camera so we see their faces
 // everyone takes a place on a tilted ring around the planet: the two of them together, then all 24 chouchous
 function startOrbit() {
@@ -1311,12 +1371,13 @@ function startOrbit() {
   const u = F(1, 0, 0).addScaledVector(n, -F(1, 0, 0).dot(n)).normalize(), v = V().crossVectors(n, u).normalize();
   const items = [];
   const couple = { obj: new THREE.Group(), radius: 31, lift: 4, s: 1, spin: false };   // girl + boy travel together, side by side
-  couple.obj.position.copy(girl.root.position).lerp(boy.root.position, 0.5);
+  const bw = bean.getWorldPosition(V());
+  couple.obj.position.copy(girl.root.position).lerp(bw, 0.5);
   couple.obj.quaternion.copy(girl.root.quaternion);
   scene.add(couple.obj);
-  couple.obj.attach(girl.root); couple.obj.attach(boy.root);
+  couple.obj.attach(girl.root); couple.obj.attach(bean);
   // from the kiss pose, they ease round to fly side by side, both looking ahead along the orbit
-  f.pair = [girl, boy].map((ch, k) => ({ ch, p0: ch.root.position.clone(), q0: ch.root.quaternion.clone(), s0: ch.root.scale.x, p1: V(k ? 1.6 : -1.6, 0, 0) }));
+  f.pair = [[girl.root, V(-2.3, -2.6, 0), 2.6], [bean, V(2.4, 0.4, 0), 0.75]].map(([obj, p1, s1]) => ({ obj, p0: obj.position.clone(), q0: obj.quaternion.clone(), s0: obj.scale.x, p1, s1 }));
   items.push(couple);
   for (const c of flung) items.push({ obj: c.g, radius: 31 + (Math.random() - 0.5) * 3, lift: (Math.random() - 0.5) * 4, s: 2.2, spin: true });
   for (const it of items) { it.from = it.obj.position.clone(); it.fromQ = it.obj.quaternion.clone(); it.fromS = it.obj.scale.x; }
@@ -1449,54 +1510,58 @@ function updateFinale(dt, t) {
     bean.position.set(0, lerp(-6, 12, easeOutBack(p)), 0);
     bean.scale.setScalar(Math.max(0.01, ease(Math.min(1, p * 1.6))));
     bean.rotation.z = Math.sin(t * 3) * 0.12;
+    sb.pop = [0, 0, 0]; poseBerryBoy(t, 0);   // he's still tucked inside
     camPos = F(6, 17, 40); look = F(0, 11, 0);
     if (p >= 1) { next('beanWait'); $('whatsThat').classList.remove('hidden'); }
   } else if (f.phase === 'beanWait') {            // "What's that?"
     girl.root.position.copy(girlFly);
     bean.position.y = 12 + Math.sin(t * 2) * 0.4;
     bean.rotation.z = Math.sin(t * 3) * 0.12 + Math.sin(t * 31) * 0.05 * Math.pow(Math.max(0, Math.sin(t * 1.3)), 8);
+    poseBerryBoy(t, 0);
     camPos = F(6, 17, 40); look = F(0, 11, 0);
-  } else if (f.phase === 'beanOpen') {            // it wiggles... pops open... and there he is!
+  } else if (f.phase === 'beanOpen') {            // the strawberry wiggles... then pop, pop, pop: head, arms, legs!
     girl.root.position.copy(girlFly);
     const T = f.t;
-    bean.rotation.z = T < 0.9 ? Math.sin(T * 40) * 0.18 * (T / 0.9) : 0;
-    if (T >= 0.9 && !f.popped) {
-      f.popped = true; shake = 0.6;
-      popSound(); collectSound();
-      burst(cake.localToWorld(V(0, 14, 0)), 0xfff176, 50, 14, 1, 1.6);
-      burst(cake.localToWorld(V(0, 14, 0)), 0xffffff, 14, 6, 2, 2.2, heartTex, false);
-      boy.root.visible = true;
-    }
-    beanLid.rotation.x = -2.1 * easeOutBack(clamp((T - 0.9) / 0.6, 0, 1));
-    if (f.popped) {
-      const q = clamp((T - 1.0) / 2.0, 0, 1);
-      boy.root.position.copy(cake.localToWorld(V(0, lerp(11, 19, easeOutBack(q)), 0)));
-      boy.root.scale.setScalar(Math.max(0.01, lerp(0.4, 3, ease(q))));
-      animateCharacter(boy, t, 0, 'fly');
-    }
-    camPos = F(6, 18, 44); look = F(0, 13, 0);
-    if (T > 3.2) next('meet');
-  } else if (f.phase === 'meet') {             // he floats over; they turn to face each other
+    berryBody.rotation.z = T < 0.9 ? Math.sin(T * 40) * 0.16 * (T / 0.9) : berryBody.rotation.z;
+    const popAt = [0.9, 1.3, 1.65];
+    popAt.forEach((at, k) => {
+      if (T >= at && !(f.pops ??= [])[k]) {
+        f.pops[k] = true; popSound();
+        burst(bean.localToWorld(V(0, k === 0 ? 0.6 : k === 1 ? 0 : -0.9, 0.9)), [0xfff176, 0xffffff, 0xffc0d0][k], 18, 8, 0.8, 1);
+        if (k === 0) { shake = 0.35; collectSound(); }
+      }
+    });
+    sb.pop = popAt.map(at => clamp((T - at) / 0.45, 0, 1));
+    poseBerryBoy(t, T > 1.9 ? clamp((T - 1.9) / 0.6, 0, 1) : 0);
+    camPos = F(6, 16, 36); look = F(0, 12, 0);
+    if (T > 2.6) next('struggle');
+  } else if (f.phase === 'struggle') {            // he flails about, but a strawberry isn't built for walking
+    girl.root.position.copy(girlFly);
+    poseBerryBoy(t, 1);
+    bean.position.x = Math.sin(f.t * 2.2) * 0.8;   // shuffles a little, gets nowhere
+    if (Math.random() < dt * 3) burst(bean.localToWorld(V((Math.random() - 0.5) * 1.6, 1.1, 0.6)), 0xbfe6ff, 1, 2.5, 0.5, 0.8);   // effort droplets
+    camPos = F(5, 15, 34); look = F(0, 12, 0);
+    if (f.t > 3.4) next('meet');
+  } else if (f.phase === 'meet') {             // she floats over to him and turns to face him
     const p = clamp(f.t / 3, 0, 1), e = ease(p);
-    bean.scale.setScalar(Math.max(0.001, 1 - e));
+    poseBerryBoy(t, 1 - e * 0.85);
+    bean.position.x = lerp(bean.position.x, 0, 0.1);
     girl.root.position.copy(girlFly).lerp(KISS_G(), e);
-    boy.root.position.copy(F(0, 19, 0)).lerp(KISS_B(), e).add(F(0, Math.sin(p * Math.PI) * 4, 0));
     girl.root.quaternion.copy(f.fq).multiply(tq.setFromAxisAngle(AY, lerp(f.gy || 0, KISS_YAW, e)));
-    boy.root.quaternion.copy(f.fq).multiply(tq.setFromAxisAngle(AY, lerp(0, -KISS_YAW, e)));
-    animateCharacter(boy, t, 0, 'fly');
-    camPos = F(-14.5, 20, 38); look = F(0, 7, 0).lerp(F(-14.5, 19, 6), e); camSpeed = 1.2;
-    if (p >= 1) { next('kiss'); bean.visible = false; }
-  } else if (f.phase === 'kiss') {             // a little kiss, with hearts
-    const p = clamp(f.t / 3.2, 0, 1), lean = Math.sin(Math.min(1, p * 1.6) * Math.PI / 2) * (p < 0.85 ? 1 : 1 - (p - 0.85) / 0.15);
-    girl.root.position.copy(KISS_G()).add(F(0.25 * lean, 0, 0));
-    boy.root.position.copy(KISS_B()).add(F(-0.25 * lean, 0, 0));
+    sb.head.rotation.y = lerp(sb.head.rotation.y, -0.45, 0.08);   // he turns to look at her
+    camPos = F(-2, 15, 30); look = F(0, 7, 0).lerp(F(-2.4, 13, 2), e); camSpeed = 1.2;
+    if (p >= 1) next('kiss');
+  } else if (f.phase === 'kiss') {             // a little kiss on the cheek, with hearts
+    const p = clamp(f.t / 3.4, 0, 1), lean = Math.sin(Math.min(1, p * 1.6) * Math.PI / 2) * (p < 0.85 ? 1 : 1 - (p - 0.85) / 0.15);
+    poseBerryBoy(t, f.kissed ? 0.35 : 0.15);   // a happy little wiggle once she's kissed him
+    sb.head.rotation.y = lerp(sb.head.rotation.y, -0.45, 0.1);
+    girl.root.position.copy(KISS_G()).add(F(0.35 * lean, 0, 0));
     girl.root.quaternion.copy(f.fq).multiply(tq.setFromAxisAngle(AY, KISS_YAW)).multiply(tq.setFromAxisAngle(AX, 0.16 * lean));
-    boy.root.quaternion.copy(f.fq).multiply(tq.setFromAxisAngle(AY, -KISS_YAW)).multiply(tq.setFromAxisAngle(AX, 0.16 * lean));
-    animateCharacter(boy, t, 0, 'fly');
-    if (!f.kissed && p > 0.25) { f.kissed = true; tone(1046.5, 0, 0.5, 0.06, 'sine'); tone(1318.5, 0.12, 0.7, 0.05, 'sine'); burst(F(-14.5, 22.5, 6), 0xffffff, 10, 4, 1.6, 2.2, heartTex, false); }
+    const cheek = bean.localToWorld(V(-0.9, 0.8, 0.9));
+    if (!f.kissed && p > 0.28) { f.kissed = true; tone(1046.5, 0, 0.5, 0.06, 'sine'); tone(1318.5, 0.12, 0.7, 0.05, 'sine'); burst(cheek.clone().add(F(0, 2, 0)), 0xffffff, 10, 4, 1.6, 2.2, heartTex, false); }
     f.heartT = (f.heartT || 0) - dt;
-    if (f.kissed && f.heartT <= 0) { f.heartT = 0.35; burst(F(-14.5 + (Math.random() - 0.5) * 2, 22, 6), 0xffffff, 1, 2, 1 + Math.random() * 0.8, 2.4, heartTex, false); }
-    camPos = F(-14.5, 20, 34); look = F(-14.5, 19, 6); camSpeed = 1;
+    if (f.kissed && f.heartT <= 0) { f.heartT = 0.35; burst(cheek.clone().add(F((Math.random() - 0.5) * 2, 2.5, 0)), 0xffffff, 1, 2, 1 + Math.random() * 0.8, 2.4, heartTex, false); }
+    camPos = F(-2, 15, 27); look = F(-2.4, 13, 2); camSpeed = 1;
     if (p >= 1) { next('orbit'); startOrbit(); }
   } else if (f.phase === 'orbit') {            // the planet comes back, and everyone circles it together
     const T = f.t;
@@ -1519,8 +1584,8 @@ function updateFinale(dt, t) {
       it.obj.scale.setScalar(lerp(it.fromS, it.s, e));
     });
     const ep = ease(clamp(T / 1.6, 0, 1));
-    for (const pr of f.pair) { pr.ch.root.position.lerpVectors(pr.p0, pr.p1, ep); pr.ch.root.quaternion.copy(pr.q0).slerp(new THREE.Quaternion(), ep); pr.ch.root.scale.setScalar(lerp(pr.s0, 2.6, ep)); }
-    animateCharacter(boy, t, 0, 'fly');
+    for (const pr of f.pair) { pr.obj.position.lerpVectors(pr.p0, pr.p1, ep); pr.obj.quaternion.copy(pr.q0).slerp(new THREE.Quaternion(), ep); pr.obj.scale.setScalar(lerp(pr.s0, pr.s1, ep)); }
+    poseBerryBoy(t, 0.3);
     camPos = F(0, 38, 102); look = F(0, 2, 0); camSpeed = 0.7;
     if (T > 8 && !f.ended) { f.ended = true; openOverlay('ending'); }
   }
@@ -1538,7 +1603,7 @@ function updateFinale(dt, t) {
 
   // candles flicker, lean away when she blows, and go out
   f.gust = Math.max(0, (f.gust || 0) - dt * 3);
-  const blownOut = ['blown', 'awaitCut', 'cut', 'beanRise', 'beanWait', 'beanOpen', 'meet', 'kiss', 'orbit'].includes(f.phase);
+  const blownOut = ['blown', 'awaitCut', 'cut', 'beanRise', 'beanWait', 'beanOpen', 'struggle', 'meet', 'kiss', 'orbit'].includes(f.phase);
   for (const [k, fl] of flames.entries()) {
     if (blownOut && fl.out < 1) {
       if (fl.out === 0) puff(fl.half.localToWorld(fl.base.clone().add(V(0, 0.6, 0))), V(0, 2, 0).applyQuaternion(f.fq), 1.2, 1.6, 0xd8d4de);

@@ -528,10 +528,11 @@ $('letter').addEventListener('click', e => { if (e.target.id === 'letter') $('bt
 $('btnEndCat').onclick = () => { closeOverlay('ending'); renderCatalogue(); openOverlay('catalogue'); };
 $('btnReplay').onclick = () => location.reload();
 // the ending card can be put away to just watch everyone orbit the planet, and brought back any time
-const hideEnding = () => { closeOverlay('ending'); $('btnEndReopen').classList.remove('hidden'); };
+const hideEnding = () => { closeOverlay('ending'); $('btnEndReopen').classList.remove('hidden'); $('orbitHint').classList.remove('hidden'); };
 $('btnEndClose').onclick = hideEnding;
 $('ending').addEventListener('click', e => { if (e.target.id === 'ending') hideEnding(); });
-$('btnEndReopen').onclick = () => { $('btnEndReopen').classList.add('hidden'); openOverlay('ending'); };
+$('btnEndReopen').onclick = () => { $('btnEndReopen').classList.add('hidden'); $('orbitHint').classList.add('hidden'); openOverlay('ending'); };
+addEventListener('wheel', e => { if (finale?.phase === 'orbit' && !modalOpen) finale.wheel = (finale.wheel || 0) + e.deltaY; }, { passive: true });
 addEventListener('keydown', e => { if (e.code === 'Escape' && $('ending').classList.contains('open')) hideEnding(); });
 // ---------------- the opening story: a few lines, then the birthday password
 const STORY = [
@@ -1624,7 +1625,14 @@ function updateFinale(dt, t) {
     const ep = ease(clamp(T / 1.6, 0, 1));
     for (const pr of f.pair) { pr.obj.position.lerpVectors(pr.p0, pr.p1, ep); pr.obj.quaternion.copy(pr.q0).slerp(new THREE.Quaternion(), ep); pr.obj.scale.setScalar(lerp(pr.s0, pr.s1, ep)); }
     poseBerryBoy(t, 0.3);
-    camPos = F(0, 38, 102); look = F(0, 2, 0); camSpeed = 0.7;
+    // she can zoom (↑ ↓ / mouse wheel) and swing round (← →) to watch everyone float by
+    const zin = (keys.ArrowUp ? 1 : 0) - (keys.ArrowDown ? 1 : 0);
+    f.zoom = clamp((f.zoom ?? 1) * Math.exp(-zin * dt * 0.9) * Math.exp((f.wheel || 0) * 0.0015), 0.52, 1.5); f.wheel = 0;
+    f.camYaw = (f.camYaw || 0) + ((keys.ArrowLeft ? 1 : 0) - (keys.ArrowRight ? 1 : 0)) * dt * 0.8;
+    // closer = lower, almost level with the ring, so the orbiting gang drifts right past the camera
+    const dist = 109 * f.zoom, el = lerp(0.1, 0.36, clamp((f.zoom - 0.52) / 0.48, 0, 1));
+    camPos = F(0, Math.sin(el) * dist, Math.cos(el) * dist).applyAxisAngle(F(0, 1, 0), f.camYaw);
+    look = F(0, lerp(6, 2, clamp((f.zoom - 0.52) / 0.48, 0, 1)), 0); camSpeed = zin || f.camYaw ? 2.2 : 0.7;
     if (T > 8 && !f.ended) { f.ended = true; openOverlay('ending'); }
   }
 

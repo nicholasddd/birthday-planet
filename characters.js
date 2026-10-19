@@ -1,5 +1,6 @@
 // Chibi plush-doll characters (based on the character sheet):
-// big head, blank cream face with two oval eyes, messy hair, cosy sweater dress, stubby boots.
+// big head, cream face with two oval eyes, stubby boots. She has shoulder-length side-parted hair,
+// a white sleeveless dress and a little smile; he has a short cut, a jumper and trousers.
 import * as THREE from 'three';
 import { softify } from './planet.js';
 import { bake } from './perf.js';
@@ -22,7 +23,7 @@ export function makeChibi(o, isGirl) {
   const root = new THREE.Group(), rig = new THREE.Group(); root.add(rig);
   const parts = {};
   const sweaterM = softify(soft(o.outfit, 0xffffff), { scale: 2.2, strength: 0.35 });
-  const hairM = softify(soft(o.hair, 0x9a6a55, { roughness: 0.85, sheenRoughness: 0.4 }), { scale: 1.6, strength: 0.7 });
+  const hairM = softify(soft(o.hair, o.hairSheen ?? 0x9a6a55, { roughness: 0.85, sheenRoughness: 0.4 }), { scale: 1.6, strength: 0.7 });
   const faceM = soft(o.face, 0xffffff);
   const skinM = soft(o.skin, 0xffe8dc);
   const bootM = soft(o.boots, 0x8a6a5a);
@@ -58,14 +59,19 @@ export function makeChibi(o, isGirl) {
     }
     dressG.computeVertexNormals(); }
   rig.add(new THREE.Mesh(dressG, sweaterM));
-  const collar = mesh(new THREE.TorusGeometry(0.14, 0.055, 10, 28), sweaterM, 0, 0.92, 0); collar.rotation.x = Math.PI / 2; rig.add(collar);
+  const collar = mesh(new THREE.TorusGeometry(0.14, 0.055, 10, 28), isGirl ? skinM : sweaterM, 0, 0.92, 0); collar.rotation.x = Math.PI / 2; rig.add(collar);
 
-  // puffy sleeves with tiny hands
+  // arms: puffy sleeves for him, bare arms + little shoulder straps for her sleeveless top
   for (const s of [-1, 1]) {
     const sh = new THREE.Group(); sh.position.set(0.28 * s, 0.82, 0);
-    const sleeve = mesh(new THREE.CapsuleGeometry(0.15, 0.18, 8, 16), sweaterM, 0, -0.18, 0); sleeve.scale.set(1.05, 1, 0.95);
-    const cuff = mesh(new THREE.TorusGeometry(0.1, 0.04, 8, 20), sweaterM, 0, -0.38, 0); cuff.rotation.x = Math.PI / 2;
-    sh.add(sleeve, cuff, mesh(ball(0.08, 16), skinM, 0, -0.44, 0));
+    if (isGirl) {
+      sh.add(mesh(new THREE.CapsuleGeometry(0.095, 0.26, 8, 14), skinM, 0, -0.2, 0), mesh(ball(0.085, 16), skinM, 0, -0.42, 0));
+      const strap = mesh(new THREE.CapsuleGeometry(0.05, 0.12, 6, 10), sweaterM, -0.1 * s, 0.07, 0); strap.rotation.z = 0.5 * s; rig.add(strap); strap.position.add(sh.position);
+    } else {
+      const sleeve = mesh(new THREE.CapsuleGeometry(0.15, 0.18, 8, 16), sweaterM, 0, -0.18, 0); sleeve.scale.set(1.05, 1, 0.95);
+      const cuff = mesh(new THREE.TorusGeometry(0.1, 0.04, 8, 20), sweaterM, 0, -0.38, 0); cuff.rotation.x = Math.PI / 2;
+      sh.add(sleeve, cuff, mesh(ball(0.08, 16), skinM, 0, -0.44, 0));
+    }
     rig.add(sh); parts[s < 0 ? 'shR' : 'shL'] = sh;
   }
 
@@ -77,15 +83,29 @@ export function makeChibi(o, isGirl) {
     const ear = mesh(ball(0.09, 16), skinM, 0.58 * s, -0.12, 0.02); ear.scale.set(0.55, 1, 0.8); head.add(ear);
   }
 
+  if (isGirl) {   // a soft closed-mouth smile and rosy cheeks
+    const smile = mesh(new THREE.TorusGeometry(0.075, 0.016, 6, 16, Math.PI * 0.8), eyeM, 0, -0.2, 0.535);
+    smile.rotation.z = Math.PI * 1.1; head.add(smile);
+    const blushM = new THREE.MeshBasicMaterial({ color: 0xf4a7a7, transparent: true, opacity: 0.55, depthWrite: false });
+    for (const s of [-1, 1]) { const b = mesh(ball(0.07, 12), blushM, 0.31 * s, -0.17, 0.46); b.scale.set(1.3, 0.7, 0.3); b.rotation.y = 0.5 * s; head.add(b); }
+  }
+
   // hair
-  if (isGirl) {   // back cap, fringe, parted bangs, face-framing locks
-    head.add(mesh(ball(0.63, 40), hairM, 0, 0.04, -0.14));
-    const fringe = mesh(ball(0.5, 32), hairM, 0, 0.36, 0.16); fringe.scale.set(1.12, 0.4, 0.66); head.add(fringe);
+  if (isGirl) {   // shoulder-length, straight, parted on one side, with a swept fringe and face-framing curtains
+    head.add(mesh(ball(0.63, 40), hairM, 0, 0.06, -0.08));                                  // crown
+    const back = mesh(ball(0.58, 32), hairM, 0, -0.32, -0.2); back.scale.set(1.02, 1.08, 0.7); head.add(back);   // falls to the shoulders
+    const fringeA = mesh(ball(0.48, 32), hairM, 0.12, 0.41, 0.17); fringeA.scale.set(0.98, 0.34, 0.66); fringeA.rotation.z = -0.22; head.add(fringeA);
+    const fringeB = mesh(ball(0.28, 24), hairM, -0.36, 0.36, 0.15); fringeB.scale.set(0.75, 0.45, 0.7); head.add(fringeB);
+    head.add(strand(hairM, [-0.1, 0.52, 0.36], [0.46, 0.16, 0.42], 0.075));    // the long swept bang from the side part
+    head.add(strand(hairM, [-0.22, 0.48, 0.36], [-0.47, 0.14, 0.38], 0.06));
     for (const s of [-1, 1]) {
-      head.add(strand(hairM, [0.1 * s, 0.42, 0.4], [0.4 * s, 0.14, 0.44], 0.085));
-      head.add(strand(hairM, [0.45 * s, 0.2, 0.32], [0.55 * s, -0.36, 0.22], 0.075));
-      head.add(strand(hairM, [0.56 * s, 0.05, 0.12], [0.62 * s, -0.42, 0.06], 0.05));
+      head.add(strand(hairM, [0.5 * s, 0.22, 0.26], [0.5 * s, -0.66, 0.24], 0.085));   // front curtains past the cheeks
+      head.add(strand(hairM, [0.57 * s, 0.1, 0.04], [0.58 * s, -0.74, 0.0], 0.095));   // sides
+      head.add(strand(hairM, [0.42 * s, 0.05, -0.36], [0.44 * s, -0.8, -0.3], 0.12));  // back sections
+      head.add(mesh(ball(0.095, 16), hairM, 0.47 * s, -0.68, 0.24));                 // ends tucking softly inward
+      head.add(mesh(ball(0.1, 16), hairM, 0.55 * s, -0.76, 0.0));
     }
+    head.add(mesh(ball(0.18, 20), hairM, 0, -0.8, -0.3));
   } else {        // short boy cut: snug cap, short sides above the ears, a spiky little fringe
     const cap = mesh(ball(0.62, 40), hairM, 0, 0.1, -0.1); cap.scale.set(1, 0.92, 1); head.add(cap);
     const fringe = mesh(ball(0.5, 32), hairM, 0, 0.4, 0.2); fringe.scale.set(1.08, 0.34, 0.6); head.add(fringe);
@@ -95,27 +115,7 @@ export function makeChibi(o, isGirl) {
     for (const s of [-1, 1]) { const side = mesh(ball(0.2, 20), hairM, 0.52 * s, 0.14, 0.02); side.scale.set(0.5, 0.9, 1.1); head.add(side); }   // short sides
   }
 
-  if (isGirl) {
-    // messy high bun
-    const bun = new THREE.Group(); bun.position.set(0.04, 0.66, -0.2); bun.scale.setScalar(1.35); head.add(bun);
-    bun.add(mesh(ball(0.26, 28), hairM));
-    for (const [rx, ry, r] of [[0.4, 0.2, 0.17], [1.3, 1.1, 0.15], [0.9, 2.2, 0.13]]) {
-      const coil = mesh(new THREE.TorusGeometry(r, 0.075, 10, 24), hairM, 0, 0.06, 0); coil.rotation.set(rx, ry, 0); bun.add(coil);
-    }
-    bun.add(mesh(ball(0.14, 20), hairM, -0.05, 0.22, 0.02));
-    bun.add(strand(hairM, [0.1, 0.25, 0.05], [0.24, 0.32, 0.1], 0.03));                // flyaway strands
-    bun.add(strand(hairM, [-0.12, 0.2, -0.05], [-0.28, 0.24, -0.12], 0.03));
-
-    // blue scrunchie + ribbon bow with long tails
-    const ribbonM = softify(soft(o.ribbon, 0xd8e4ff, { side: THREE.DoubleSide }), { scale: 2, strength: 0.3 });
-    const scr = mesh(new THREE.TorusGeometry(0.2, 0.06, 10, 28), ribbonM, 0.04, 0.5, -0.18); scr.rotation.x = Math.PI / 2 - 0.3; head.add(scr);
-    const bow = new THREE.Group(); bow.position.set(0.46, 0.56, -0.2); bow.rotation.set(0, 1.1, -0.3); bow.scale.setScalar(1.35); head.add(bow);
-    for (const s of [-1, 1]) {
-      const loop = mesh(new THREE.TorusGeometry(0.11, 0.065, 12, 24), ribbonM, 0.16 * s, 0.05, 0); loop.scale.set(1.45, 0.85, 2.0); loop.rotation.z = -0.4 * s; bow.add(loop);
-      const tail = mesh(new THREE.BoxGeometry(0.13, 0.8, 0.025), ribbonM, 0.08 * s, -0.36, 0.16); tail.rotation.set(-0.4, 0, 0.2 * s); bow.add(tail);
-    }
-    bow.add(mesh(ball(0.075, 16), ribbonM));
-  } else {
+  if (!isGirl) {
     // a few messy tufts sticking up on top, and a cowlick
     for (const [x, y, z, r] of [[0, 0.6, -0.02, 0.2], [0.24, 0.52, 0.04, 0.15], [-0.25, 0.52, 0.0, 0.16], [-0.1, 0.46, -0.36, 0.17]])
       head.add(mesh(ball(r, 20), hairM, x, y, z));
@@ -151,6 +151,14 @@ export function animateCharacter(ch, t, walk, pose = 'walk') {
     ch.rig.rotation.x = lerp(ch.rig.rotation.x, up ? -0.12 : 0.1, 0.3); ch.rig.rotation.z *= 0.8;
     ch.rig.position.y = up ? Math.abs(Math.sin(t * 10)) * 0.06 : 0;
     p.head.rotation.z = 0;
+    return;
+  }
+  if (pose === 'sit') {             // sitting with her legs out in front, hands holding on, feet swinging happily
+    for (const [k, s] of [['shL', 1], ['shR', -1]]) { p[k].rotation.z = lerp(p[k].rotation.z, s * 0.75, 0.2); p[k].rotation.x = lerp(p[k].rotation.x, -0.35, 0.2); }
+    p.hipL.rotation.x = -1.35 + Math.sin(t * 4) * 0.25; p.hipR.rotation.x = -1.35 - Math.sin(t * 4) * 0.25;
+    ch.rig.rotation.x = lerp(ch.rig.rotation.x, -0.1, 0.2); ch.rig.rotation.z = Math.sin(t * 1.6) * 0.05;
+    ch.rig.position.y = -0.22;
+    p.head.rotation.z = Math.sin(t * 1.3) * 0.08;
     return;
   }
   if (pose === 'jump') {            // arms up, knees tucked

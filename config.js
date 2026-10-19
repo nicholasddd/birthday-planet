@@ -21,7 +21,7 @@ export const CONFIG = {
   timeZone: 'Asia/Bangkok', timeZoneName: 'Thailand time',
 
   // Character colours (chibi plush style)
-  girl: { face: 0xf7efe6, skin: 0xf3d2bf, hair: 0x5a3326, outfit: 0xeedfc8, ribbon: 0x7393d1, boots: 0x4e3027 },
+  girl: { face: 0xf7efe6, skin: 0xf3d2bf, hair: 0x5a2c1c, hairSheen: 0xc98a5e, outfit: 0xf7f4ef, boots: 0x6b4434 },
   boy:  { face: 0xf7efe6, skin: 0xefcab3, hair: 0x2e1d17, outfit: 0xa9c1dc, pants: 0x3e4a63, boots: 0x3b2a22 },
 
   // Background music is composed in code. To use your own recordings instead, put the files in

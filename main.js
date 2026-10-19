@@ -252,9 +252,11 @@ function updateWaterhole(dt) {
 }
 
 // ============================================================ the stone stage's carved chouchou
+// Once all 24 letters are found it glows softly; when she comes back it wakes up as a giant chouchou.
+const statue = { group: new THREE.Group(), stone: null, mat: null, giant: null, glow: null, dir: null, state: 'stone', armed: true };
 {
   const st = makeCabbageChicken(new THREE.Color(0xffffff));
-  const statueM = softify(new THREE.MeshStandardMaterial({ color: 0xb6b0bc, roughness: 0.92 }), { scale: 1.1, strength: 0.6 });
+  const statueM = softify(new THREE.MeshStandardMaterial({ color: 0xb6b0bc, roughness: 0.92, emissive: 0xffe2a8, emissiveIntensity: 0 }), { scale: 1.1, strength: 0.6 });
   const shells = []; st.root.traverse(o => { if (o.userData.fuzzShell) shells.push(o); });
   shells.forEach(o => o.parent.remove(o));
   st.envelope.visible = false; st.flower.visible = false;
@@ -263,13 +265,59 @@ function updateWaterhole(dt) {
   bake(st.root);   // now it's all one piece of stone
   const plinth = new THREE.Mesh(new THREE.CylinderGeometry(1.9, 2.1, 0.35, 28), statueM);
   plinth.position.y = 0.17; plinth.castShadow = plinth.receiveShadow = true;
-  const statue = new THREE.Group(); statue.add(plinth, st.root);
+  const g = statue.group; g.add(plinth, st.root);
   st.root.position.y = 0.3; st.root.scale.setScalar(2.4);
-  statue.position.set(0, 1.25, -world.stage.r * 0.42);
-  world.stage.group.add(statue);
+  g.position.set(0, 1.25, -world.stage.r * 0.42);
+  world.stage.group.add(g);
   world.stage.group.updateMatrixWorld(true);
-  const sp = statue.getWorldPosition(V()).normalize();
-  obstacles.push({ dir: sp, rad: 1.9, top: world.stage.top + 4.2, plat: 0, solid: true });
+  statue.stone = st.root; statue.mat = statueM;
+  statue.dir = g.getWorldPosition(V()).normalize();
+  obstacles.push({ dir: statue.dir, rad: 1.9, top: world.stage.top + 4.2, plat: 0, solid: true });
+  // soft golden halo, shown while it waits for her
+  statue.glow = new THREE.Sprite(new THREE.SpriteMaterial({ map: glowTex, color: 0xffe6b0, transparent: true, opacity: 0, depthWrite: false, fog: false }));
+  statue.glow.position.set(0, 2.6, 0); statue.glow.scale.setScalar(9); statue.glow.visible = false; g.add(statue.glow);
+}
+const allFound = () => collected.size === TOTAL;
+// the stone comes to life: a real, fluffy giant chouchou with a big flower
+function wakeStatue() {
+  if (statue.state !== 'stone') return;
+  statue.state = 'awake';
+  const ch = makeCabbageChicken(new THREE.Color(0xff8fb8));
+  ch.envelope.visible = false;
+  statue.seatY = new THREE.Box3().setFromObject(ch.root).max.y * 0.86;   // where she'll sit: just into the leaves on its head
+  ch.root.position.y = 0.3; ch.root.scale.setScalar(2.4);
+  shadowAll(ch.root);
+  statue.group.add(ch.root);
+  showShells(ch.root);
+  statue.giant = ch; statue.stone.visible = false; statue.t = 0;
+  const top = statue.group.localToWorld(V(0, 2.4, 0));
+  burst(top, 0xffffff, 40, 9, 1.2, 1.4);
+  burst(top, 0xffe6b0, 24, 6, 0.8, 1.6, glowTex, false);
+  burst(statue.group.localToWorld(V(0, 4.6, 0)), 0xffffff, 6, 2.5, 1, 1.8, heartTex, false);
+  chime(); popSound();
+  toast('✨ The stone chouchou woke up!');
+}
+function updateStatue(dt, t) {
+  const glowing = allFound() && state !== 'finale';
+  statue.glow.visible = glowing || statue.glow.material.opacity > 0.01;
+  statue.glow.material.opacity = lerp(statue.glow.material.opacity, glowing ? 0.35 + Math.sin(t * 2) * 0.12 : 0, 1 - Math.exp(-dt * 3));
+  statue.mat.emissiveIntensity = glowing && statue.state === 'stone' ? 0.25 + Math.sin(t * 2) * 0.15 : 0;
+  if (!glowing || state !== 'play') return;
+  const d = girl.root.position.distanceTo(statue.group.getWorldPosition(V()));
+  if (statue.state === 'stone' && d < 11) wakeStatue();
+  const g = statue.giant;
+  if (g && statue.state === 'awake') {   // bouncing happily, looking at her
+    statue.t += dt;
+    const pop = easeOutBack(clamp(statue.t / 0.7, 0, 1));
+    g.root.scale.set(2.4 * (1 + Math.sin(t * 3) * 0.02), 2.4 * pop * (1 - Math.sin(t * 3) * 0.025), 2.4);
+    g.root.position.y = 0.3 + Math.pow(Math.abs(Math.sin(t * 1.6)), 6) * 0.35;
+    const rel = statue.group.worldToLocal(girl.root.position.clone());
+    g.root.rotation.y = lerp(g.root.rotation.y, Math.atan2(rel.x, rel.z), 0.05);
+    for (const [j, l] of g.leaves.entries()) l.rotation.x = Math.sin(t * 2 + j) * 0.12;
+    // "Give the 24 flowers to the giant chouchou?" — asked every time she comes close
+    if (d > 11) statue.armed = true;
+    if (d < 8.2 && statue.armed && !modalOpen && !introLock && statue.t > 1.2) { statue.armed = false; openOverlay('gift'); }
+  }
 }
 
 // ============================================================ berries
@@ -425,10 +473,7 @@ function updateTimeUI() {
   const next = u < TOTAL ? ` · next in ${fmtDur(unlockTime(u) - now())}` : '';
   if (state === 'finale') st.classList.add('hidden');
   else if (collected.size === TOTAL) {
-    if (!$('btnFinale')) {
-      st.innerHTML = `${dot}All 24 letters found <button id="btnFinale">begin the finale</button>`;
-      $('btnFinale').onclick = startFinale;
-    }
+    st.innerHTML = statue.state === 'awake' ? `${dot}The giant chouchou is waiting for you` : `${dot}All 24 letters found · go back to the stone chouchou`;
   } else if (u === 0) st.innerHTML = `${dot}Something stirs in ${fmtDur(startMs - now())}`;
   else if (waiting > 0) st.innerHTML = known()
     ? `${dot}${waiting > 1 ? waiting + ' chouchous are' : 'A chouchou is'} stuck${next}`
@@ -477,7 +522,7 @@ function renderCatalogue() {
 function openOverlay(id) { $(id).classList.add('open'); modalOpen = true; }
 function closeOverlay(id) {
   $(id).classList.remove('open');
-  modalOpen = ['intro', 'controls', 'firstSeen', 'offer', 'letter', 'catalogue', 'ending'].some(k => $(k).classList.contains('open'));
+  modalOpen = ['intro', 'controls', 'firstSeen', 'offer', 'gift', 'letter', 'catalogue', 'ending'].some(k => $(k).classList.contains('open'));
 }
 const known = () => pulled.size > 0;   // she only learns what a chouchou is when she pulls out the first one
 {
@@ -548,7 +593,7 @@ $('btnCloseCat').onclick = () => { closeOverlay('catalogue'); if (finale?.ended)
 $('btnCloseLetter').onclick = () => {
   closeOverlay('letter');
   if (finale?.ended) $('btnEndReopen').classList.remove('hidden');
-  if (pendingFinale.v) { pendingFinale.v = false; toast('💫 Something magical is happening…'); setTimeout(startFinale, 1500); }
+  if (pendingFinale.v) { pendingFinale.v = false; setTimeout(() => { toast('💫 The stone chouchou is glowing… go back to it'); chime(); }, 900); }
 };
 $('letter').addEventListener('click', e => { if (e.target.id === 'letter') $('btnCloseLetter').click(); });
 $('btnEndCat').onclick = () => { closeOverlay('ending'); renderCatalogue(); openOverlay('catalogue'); };
@@ -715,7 +760,8 @@ if (DEBUG) {
   add('Jump to start', () => setOff(startMs - Date.now() + 1000));
   add('+1 hour', () => setOff(timeOffset + HOUR));
   add('Unlock all', () => setOff(startMs + TOTAL * HOUR - Date.now()));
-  add('Collect all → finale', () => { for (let i = 0; i < TOTAL; i++) if (!collected.has(i)) freeChicken(i, true); for (const r of roamers) if (r.mode === 'present') receiveFrom(r, true); updateTimeUI(); startFinale(); });
+  add('Collect all 24', () => { for (let i = 0; i < TOTAL; i++) if (!collected.has(i)) freeChicken(i, true); for (const r of roamers) if (r.mode === 'present') receiveFrom(r, true); updateTimeUI(); });
+  add('Teleport to the statue', () => { pq.setFromUnitVectors(AY, world.stage.dir).multiply(tq.setFromAxisAngle(AX, 7.5 / R)); girlH = 0; });
   add('Sky: cycle night → dawn → noon → dusk → real', () => {
     const seq = [0, 6.3, 12, 17.9, null], i = seq.indexOf(skyHourOverride);
     skyHourOverride = seq[(i + 1) % seq.length]; toast(skyHourOverride === null ? 'Sky follows the clock' : `Sky at ${skyHourOverride}h`);
@@ -760,6 +806,8 @@ $('btnJump').addEventListener('pointerdown', e => { e.preventDefault(); jump(); 
 $('btnAct').addEventListener('pointerdown', e => { e.preventDefault(); spaceAction(); });
 $('btnAsk').addEventListener('pointerdown', e => { e.preventDefault(); if (nearHolder) offerLetter(nearHolder); });
 $('btnReceive').onclick = () => { closeOverlay('offer'); if (offering) receiveFrom(offering); offering = null; };
+$('btnGiftYes').onclick = () => { closeOverlay('gift'); startFinale(); };
+$('btnGiftNo').onclick = () => closeOverlay('gift');   // nothing happens; it'll ask again next time she comes close
 $('btnLater').onclick = () => { closeOverlay('offer'); offering = null; toast('🐣 He\'ll wait right here for you'); };
 addEventListener('keyup', e => { keys[e.code] = false; });
 const joy = { x: 0, y: 0, id: null };
@@ -912,9 +960,11 @@ function updatePlayer(dt, t) {
     if (txt === 'feed') $('btnAct').innerHTML = '<span class="pc-text">🍒 <b>SPACE</b> to feed him</span><span class="pc-touch">🍒 Tap to feed him</span>';
     if (txt === 'pick') $('btnAct').innerHTML = '<span class="pc-text">🍒 <b>SPACE</b> to pick a berry</span><span class="pc-touch">🍒 Tap to pick a berry</span>';
   }
-  arrowPivot.visible = !!best && bestD > 6;
-  if (best) {
-    const local = girl.root.worldToLocal(best.position.clone());
+  let aim = best?.position, aimD = bestD;
+  if (!best && allFound() && statue.state === 'stone') { aim = statue.group.getWorldPosition(V()); aimD = aim.distanceTo(girl.root.position); }
+  arrowPivot.visible = !!aim && aimD > 6;
+  if (aim) {
+    const local = girl.root.worldToLocal(aim.clone());
     arrowPivot.rotation.y = Math.atan2(local.x, local.z);
     arrowPivot.position.y = 3.1 + Math.sin(t * 4) * 0.12;
   }
@@ -1404,6 +1454,7 @@ function updateSmoke(dt) {
 
 function startFinale() {
   if (state === 'finale') return;
+  if (!statue.giant) wakeStatue();
   wantedTrack = null; music?.stop(3);
   state = 'finale';
   $('hud').classList.add('hidden');   // the finale is a cinematic: no HUD
@@ -1412,8 +1463,18 @@ function startFinale() {
   for (const b of buried.values()) planetGroup.remove(b);
   buried.clear();
   $('btnPull').classList.add('hidden'); $('btnAsk').classList.add('hidden');
-  finale = { phase: 'lift', t: 0, fq: pq.clone(), start: girl.root.position.clone() };
+  // the finale's frame: "up" is straight up from the statue, so the giant chouchou rises from its stage
+  const fq = pq.clone().premultiply(new THREE.Quaternion().setFromUnitVectors(AY.clone().applyQuaternion(pq), statue.dir));
+  finale = { phase: 'gift', t: 0, fq, start: girl.root.position.clone() };
   girl.root.quaternion.copy(pq);
+  // lift the giant off its plinth into a free-floating group we can steer, inflate and fling
+  const gr = statue.giant.root, wrap = new THREE.Group();
+  const gwp = gr.getWorldPosition(V()), fwd = V(0, 0, 1).transformDirection(gr.matrixWorld).applyQuaternion(fq.clone().invert());
+  finale.giantYaw = Math.atan2(fwd.x, fwd.z);
+  wrap.position.copy(gwp); wrap.quaternion.copy(fq).multiply(tq.setFromAxisAngle(AY, finale.giantYaw)); wrap.scale.setScalar(2.4);
+  scene.add(wrap); wrap.add(gr); gr.position.set(0, 0, 0); gr.rotation.set(0, 0, 0); gr.scale.setScalar(1);
+  finale.giant = { obj: wrap, ch: statue.giant, p0: gwp.clone(), seat: statue.seatY };
+  statue.state = 'gone';
   cake.quaternion.copy(finale.fq);
   boy.root.quaternion.copy(finale.fq);
   noiseSound(2.5, 500, 0.05, 1.5);
@@ -1441,7 +1502,8 @@ function startOrbit() {
   // from the kiss pose, they ease round to fly side by side, both looking ahead along the orbit
   f.pair = [[girl.root, V(-2.3, -2.6, 0), 2.6], [bean, V(2.4, 0.4, 0), 0.75]].map(([obj, p1, s1]) => ({ obj, p0: obj.position.clone(), q0: obj.quaternion.clone(), s0: obj.scale.x, p1, s1 }));
   items.push(couple);
-  for (const c of flung) items.push({ obj: c.g, ch: c.ch, radius: 31 + (Math.random() - 0.5) * 3, lift: (Math.random() - 0.5) * 4, s: 2.2, spin: true, seed: Math.random() * 10 });
+  for (const c of flung) items.push({ obj: c.g, ch: c.ch, radius: 31 + (Math.random() - 0.5) * 3, lift: (Math.random() - 0.5) * 4, s: c.cap ?? 2.2, spin: true, seed: Math.random() * 10 });
+  statue.stone.visible = true;   // the planet grows back with its statue
   for (const it of items) { it.from = it.obj.position.clone(); it.fromQ = it.obj.quaternion.clone(); it.fromS = it.obj.scale.x; }
   f.orbit = { n, u, v, items, angle: Math.atan2(couple.obj.position.dot(v), couple.obj.position.dot(u)) };
 }
@@ -1488,6 +1550,9 @@ function burstPlanet() {
     const out = r.group.position.clone().normalize();
     flung.push({ g: r.group, ch: r.ch, vel: out.multiplyScalar(14 + Math.random() * 12).add(randDir(Math.random).multiplyScalar(5)), spin: randDir(Math.random).multiplyScalar(2 + Math.random() * 3), phase: Math.random() * 6 });
   }
+  // the giant chouchou drifts gently off to join them
+  const G = finale.giant;
+  flung.push({ g: G.obj, ch: G.ch, cap: 4.4, vel: F(16, 4, -10), spin: V(0.3, 0.6, 0.2), phase: 0 });
   cake.visible = false;   // revealed once the smoke clears
 }
 
@@ -1497,9 +1562,40 @@ function updateFinale(dt, t) {
   let camPos = full, look = fullLook, camSpeed = 1.6;
   const girlFly = F(-17, 15, 6), girlUp = F(0, R + 10, 0);
 
-  if (f.phase === 'lift') {                       // she slowly floats up; the camera follows, then pulls back
-    const p = clamp(f.t / 7, 0, 1), e = ease(p);
-    girl.root.position.copy(f.start).lerp(girlUp, e);
+  const G = f.giant, seatAt = () => G.obj.localToWorld(V(0, G.seat, 0));
+  if (f.phase === 'gift') {                       // she hands over all 24 flowers, one after another
+    const T = f.t, from = girl.root.localToWorld(V(0, 1.2, 0.5)), to = G.obj.localToWorld(V(0, 0.9, 0.6));
+    while ((f.sent || 0) < TOTAL && T > 0.3 + (f.sent || 0) * 0.07) {
+      const k = f.sent = (f.sent || 0) + 1, life = 0.9;
+      const sp = new THREE.Sprite(new THREE.SpriteMaterial({ map: glowTex, color: PALETTE[k % PALETTE.length], transparent: true, depthWrite: false, opacity: 0.95 }));
+      sp.position.copy(from).add(randDir(Math.random).multiplyScalar(0.3)); sp.scale.setScalar(0.7); scene.add(sp);
+      particles.push({ s: sp, vel: to.clone().sub(sp.position).divideScalar(life).add(F(0, 2.5, 0)), life, max: life, size: 0.7 });
+      if (k % 3 === 0) tone(700 + k * 30, 0, 0.18, 0.05, 'triangle');
+    }
+    if (T > 2.4 && !f.thanked) { f.thanked = true; collectSound(); burst(G.obj.localToWorld(V(0, 1.9, 0)), 0xffffff, 10, 3, 0.9, 1.8, heartTex, false); }
+    G.obj.position.copy(G.p0).addScaledVector(F(0, 1, 0), f.thanked ? Math.abs(Math.sin((T - 2.4) * 6)) * 0.5 : 0);   // happy hops
+    const mid = girl.root.position.clone().lerp(G.p0, 0.5);
+    camPos = mid.clone().add(F(7, 6, -9)); look = mid.clone().add(F(0, 2, 0)); camSpeed = 2;
+    if (T > 3.6) { next('board'); f.from = girl.root.position.clone(); }
+  } else if (f.phase === 'board') {               // a big hop up onto its head
+    const p = clamp(f.t / 1.3, 0, 1), e = ease(p);
+    G.obj.position.copy(G.p0);
+    girl.root.position.copy(f.from).lerp(seatAt(), e).addScaledVector(F(0, 1, 0), Math.sin(p * Math.PI) * 3.2);
+    if (p >= 1 && !f.riding) { f.riding = true; popSound(); burst(seatAt(), 0x9fd27a, 10, 3, 0.5, 0.7); }
+    const mid = girl.root.position.clone().lerp(G.p0, 0.5);
+    camPos = mid.clone().add(F(7, 6, -10)); look = mid.clone().add(F(0, 2.5, 0)); camSpeed = 2;
+    if (f.t > 2) { next('lift'); noiseSound(2.5, 500, 0.05, 1.5); }
+  } else if (f.phase === 'lift') {                // the giant chouchou puffs up like a balloon and floats into space, her on top
+    const p = clamp(f.t / 8, 0, 1), e = ease(clamp((p - 0.18) / 0.82, 0, 1));
+    const puffUp = 1 + 0.45 * easeOutBack(clamp(p / 0.2, 0, 1)), wob = Math.sin(f.t * 9) * 0.04 * Math.exp(-f.t * 0.8);
+    if (p < 0.2 && Math.random() < dt * 10) noiseSound(0.25, 300 + p * 2000, 0.05, 0.05);   // fwoomp
+    const gs = 2.4 * puffUp * lerp(1, 2.4, e);
+    G.obj.scale.set(gs * (1.12 + wob), gs * (1 - wob), gs * (1.12 + wob));
+    const goal = girlUp.clone().addScaledVector(F(0, 1, 0), -G.seat * gs);
+    G.obj.position.copy(G.p0).lerp(goal, e);
+    for (const [j, l] of G.ch.leaves.entries()) l.rotation.x = Math.sin(f.t * 5 + j) * 0.3;   // flapping its leaves to fly
+    for (const [j, ft] of (G.ch.feet || []).entries()) ft.rotation.x = Math.sin(f.t * 7 + j * Math.PI) * 0.5;
+    girl.root.position.copy(seatAt());
     girl.root.scale.setScalar(lerp(1, 2.4, e));
     const z = ease(clamp((p - 0.15) / 0.85, 0, 1));
     camPos = girl.root.position.clone().add(F(0, 4, -12)).lerp(full, z);
@@ -1511,11 +1607,12 @@ function updateFinale(dt, t) {
     shake = 0.15 + p * p * 1.1;
     planetGroup.position.copy(randDir(Math.random).multiplyScalar(shake * 0.5));
     girl.root.position.copy(girlUp);
+    G.obj.position.copy(girlUp).addScaledVector(F(0, 1, 0), -G.seat * G.obj.scale.y).add(randDir(Math.random).multiplyScalar(0.1));
     if (Math.random() < dt * 14) {
       const d = randDir(Math.random);
       burst(d.multiplyScalar(R + 0.3), 0xb48a64, 4, 3, 0.8, 0.7, glowTex, false);
     }
-    if (p >= 1) { next('smoke'); burstPlanet(); }
+    if (p >= 1) { next('smoke'); f.riding = false; burstPlanet(); }
   } else if (f.phase === 'smoke') {               // ...and bursts; the cake appears as the smoke clears
     const p = clamp(f.t / 5, 0, 1);
     if (f.t > 0.35) { planetGroup.visible = false; planetGroup.position.set(0, 0, 0); }
@@ -1680,15 +1777,16 @@ function updateFinale(dt, t) {
   }
 
   // night falls once she leaves the ground
-  if (f.phase !== 'lift' || f.t > 2.5) { const nk = 1 - Math.exp(-dt * 0.7); sky.material.uniforms.uTop.value.lerp(SKY.nightTop, nk); sky.material.uniforms.uBottom.value.lerp(SKY.nightBottom, nk); starsMat.opacity = Math.min(1, starsMat.opacity + dt * 0.25); }
+  if (!['gift', 'board'].includes(f.phase) && (f.phase !== 'lift' || f.t > 4)) { const nk = 1 - Math.exp(-dt * 0.7); sky.material.uniforms.uTop.value.lerp(SKY.nightTop, nk); sky.material.uniforms.uBottom.value.lerp(SKY.nightBottom, nk); starsMat.opacity = Math.min(1, starsMat.opacity + dt * 0.25); }
   // she turns to face the cake (the meet phase handles her turn toward him)
   if (!['meet', 'bite', 'orbit'].includes(f.phase)) {
     const rel = cake.localToWorld(V(0, CAKE_TOP, 0)).sub(girl.root.position).applyQuaternion(f.fq.clone().invert());
-    const target = cake.visible ? Math.atan2(rel.x, rel.z) : 0;
+    let target = cake.visible ? Math.atan2(rel.x, rel.z) : f.giantYaw ?? 0;   // riding: she looks where the giant looks
+    if (f.phase === 'gift') { const g = G.p0.clone().sub(girl.root.position).applyQuaternion(f.fq.clone().invert()); target = Math.atan2(g.x, g.z); }
     f.gy = lerp(f.gy || 0, target, 1 - Math.exp(-dt * 3));
     girl.root.quaternion.copy(f.fq).multiply(tq.setFromAxisAngle(AY, f.gy));
   }
-  animateCharacter(girl, t, 0, f.phase === 'bite' ? 'hug' : 'fly');
+  animateCharacter(girl, t, 0, f.phase === 'bite' ? 'hug' : f.phase === 'gift' ? 'offer' : f.phase === 'board' ? (f.riding ? 'sit' : 'jump') : f.riding ? 'sit' : 'fly');
   if (f.nod != null) girl.parts.head.rotation.x = f.nod;
 
   // candles flicker, lean away when she blows, and go out
@@ -1717,13 +1815,16 @@ function updateFinale(dt, t) {
     c.g.position.addScaledVector(axis, Math.sin(t * 0.8 + c.phase) * dt * 0.4);
     c.g.rotation.x += c.spin.x * dt; c.g.rotation.y += c.spin.y * dt; c.g.rotation.z += c.spin.z * dt;
     c.spin.multiplyScalar(Math.exp(-dt * 0.35));
-    c.g.scale.setScalar(Math.min(2.2, c.g.scale.x + dt * 0.6));
+    const cap = c.cap ?? 2.2;   // the giant shrinks back from its balloon size to a big-but-normal chouchou
+    c.g.scale.setScalar(c.g.scale.x < cap ? Math.min(cap, c.g.scale.x + dt * 0.6) : Math.max(cap, c.g.scale.y - dt * 1.5));
   }
   updateSmoke(dt);
 
   const k = 1 - Math.exp(-dt * camSpeed);
   camera.position.lerp(camPos, k);
   camLook.lerp(look, k * 1.5);
+  // never fly the camera through an elephant cloud
+  for (const c of cloudPivot.children) c.visible = c.getWorldPosition(V()).distanceTo(camera.position) > 13;
   camera.up.lerp(F(0, 1, 0), k).normalize();
   shake = Math.max(0, shake - dt * (f.phase === 'rumble' ? 0 : 1.4));
   camera.lookAt(camLook);
@@ -1860,6 +1961,7 @@ function step(dt, t) {
   updateChickens(dt, t);
   if (state === 'play') updateWaterhole(dt);
   updateBerries(dt);
+  updateStatue(dt, t);
   updateParticles(dt);
   cloudPivot.rotation.y += dt * 0.02;
   for (const c of cloudPivot.children) {   // elephants gently bob up and down

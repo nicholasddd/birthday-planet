@@ -518,14 +518,21 @@ $('btnBell').onclick = askNotify;
 $('btnSound').onclick = () => { muted = !muted; store.set('bday-muted', muted ? '1' : '0'); $('btnSound').textContent = muted ? '🔇' : '🔊'; music?.setMuted(muted); };
 $('btnSound').textContent = muted ? '🔇' : '🔊';
 $('btnCat').onclick = () => { renderCatalogue(); openOverlay('catalogue'); };
-$('btnCloseCat').onclick = () => closeOverlay('catalogue');
+$('btnCloseCat').onclick = () => { closeOverlay('catalogue'); if (finale?.ended) $('btnEndReopen').classList.remove('hidden'); };
 $('btnCloseLetter').onclick = () => {
   closeOverlay('letter');
+  if (finale?.ended) $('btnEndReopen').classList.remove('hidden');
   if (pendingFinale.v) { pendingFinale.v = false; toast('💫 Something magical is happening…'); setTimeout(startFinale, 1500); }
 };
 $('letter').addEventListener('click', e => { if (e.target.id === 'letter') $('btnCloseLetter').click(); });
 $('btnEndCat').onclick = () => { closeOverlay('ending'); renderCatalogue(); openOverlay('catalogue'); };
 $('btnReplay').onclick = () => location.reload();
+// the ending card can be put away to just watch everyone orbit the planet, and brought back any time
+const hideEnding = () => { closeOverlay('ending'); $('btnEndReopen').classList.remove('hidden'); };
+$('btnEndClose').onclick = hideEnding;
+$('ending').addEventListener('click', e => { if (e.target.id === 'ending') hideEnding(); });
+$('btnEndReopen').onclick = () => { $('btnEndReopen').classList.add('hidden'); openOverlay('ending'); };
+addEventListener('keydown', e => { if (e.code === 'Escape' && $('ending').classList.contains('open')) hideEnding(); });
 // ---------------- the opening story: a few lines, then the birthday password
 const STORY = [
   '<small>somewhere beyond the clouds</small>A tiny planet drifts quietly through the sky.',

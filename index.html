@@ -138,6 +138,10 @@
   .btn:hover { background: var(--rose-deep); }
   .btn.soft { background: transparent; color: var(--ink-soft); box-shadow: none; font-weight: 500; padding: 6px 16px; }
   .btn.soft:hover { color: var(--ink); }
+  .card { position: relative; }
+  .card-close { position: absolute; top: 12px; right: 14px; width: 26px; height: 26px; border-radius: 50%; display: grid; place-items: center; font-size: 15px; color: var(--ink-soft); opacity: .75; transition: opacity .2s, background .2s; }
+  .card-close:hover { opacity: 1; background: rgba(90, 74, 94, .08); }
+  #btnEndReopen { font-size: 12.5px; padding: 8px 16px; cursor: pointer; animation: pop .5s cubic-bezier(.2,1.3,.4,1); }
   .big-emoji { font-size: 34px; line-height: 1; margin-bottom: 6px; }
 
   /* keyboard guide */
@@ -231,6 +235,7 @@
 <button id="btnPull" class="glass bottom hidden"><span class="pc-text">Spam <b>SPACE</b> to pull 🥬</span><span class="pc-touch">Tap tap tap to pull 🥬</span><div class="track"><i id="pullFill"></i></div></button>
 <button id="btnAct" class="glass bottom hidden"></button>
 <button id="btnAsk" class="glass bottom hidden"><span class="pc-text">💌 <b>SPACE</b> to take his letter</span><span class="pc-touch">💌 Tap to take his letter</span></button>
+<button id="btnEndReopen" class="pill glass bottom hidden">💌 Happy Birthday</button>
 <div id="cutHint" class="pill glass bottom hidden">🔪 Tap the cake to cut it</div>
 <button id="btnBlow" class="glass bottom hidden"><span class="pc-text">Spam <b>SPACE</b> to blow out the candles 🕯️</span><span class="pc-touch">Tap tap tap to blow out the candles 🕯️</span><div class="track"><i id="blowFill"></i></div></button>
 <div id="whatsThat" class="glass hidden"><div class="big-emoji">👀</div><div class="wt-title">What's that…?</div><button class="btn" id="btnLook">Take a closer look</button></div>
@@ -347,6 +352,7 @@
 
 <div id="ending" class="overlay">
   <div class="card">
+    <button class="card-close" id="btnEndClose" aria-label="Close">✕</button>
     <h1 id="endTitle">Happy Birthday</h1>
     <p>24 chouchous, 24 letters, and one very lucky boy.</p>
     <div class="actions">

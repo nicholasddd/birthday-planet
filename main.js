@@ -1291,6 +1291,26 @@ function startFinale() {
   noiseSound(2.5, 500, 0.05, 1.5);
 }
 function next(phase) { finale.phase = phase; finale.t = 0; }
+const KISS_G = () => F(-16.6, 15, 6), KISS_B = () => F(-12.4, 15, 6);   // facing each other, close enough to kiss
+const KISS_YAW = 1.12;   // turned toward each other, but angled to the camera so we see their faces
+// everyone takes a place on a tilted ring around the planet: the two of them together, then all 24 chouchous
+function startOrbit() {
+  const f = finale;
+  const n = F(0, 1, 0).applyAxisAngle(F(1, 0, 0), 0.38).normalize();
+  const u = F(1, 0, 0).addScaledVector(n, -F(1, 0, 0).dot(n)).normalize(), v = V().crossVectors(n, u).normalize();
+  const items = [];
+  const couple = { obj: new THREE.Group(), radius: 31, lift: 4, s: 1, spin: false };   // girl + boy travel together, side by side
+  couple.obj.position.copy(girl.root.position).lerp(boy.root.position, 0.5);
+  couple.obj.quaternion.copy(girl.root.quaternion);
+  scene.add(couple.obj);
+  couple.obj.attach(girl.root); couple.obj.attach(boy.root);
+  // from the kiss pose, they ease round to fly side by side, both looking ahead along the orbit
+  f.pair = [girl, boy].map((ch, k) => ({ ch, p0: ch.root.position.clone(), q0: ch.root.quaternion.clone(), s0: ch.root.scale.x, p1: V(k ? 1.6 : -1.6, 0, 0) }));
+  items.push(couple);
+  for (const c of flung) items.push({ obj: c.g, radius: 31 + (Math.random() - 0.5) * 3, lift: (Math.random() - 0.5) * 4, s: 2.2, spin: true });
+  for (const it of items) { it.from = it.obj.position.clone(); it.fromQ = it.obj.quaternion.clone(); it.fromS = it.obj.scale.x; }
+  f.orbit = { n, u, v, items, angle: Math.atan2(couple.obj.position.dot(v), couple.obj.position.dot(u)) };
+}
 
 // SPACE / taps during the finale
 function finaleAction() {
@@ -1445,31 +1465,59 @@ function updateFinale(dt, t) {
     }
     camPos = F(6, 18, 44); look = F(0, 13, 0);
     if (T > 3.2) next('meet');
-  } else if (f.phase === 'meet') {
+  } else if (f.phase === 'meet') {             // he floats over; they turn to face each other
     const p = clamp(f.t / 3, 0, 1), e = ease(p);
-    girl.root.position.copy(girlFly);
     bean.scale.setScalar(Math.max(0.001, 1 - e));
-    boy.root.position.copy(F(0, 19, 0)).lerp(F(-12.8, 15, 6), e).add(F(0, Math.sin(p * Math.PI) * 4, 0));
-    girl.root.quaternion.copy(f.fq).multiply(tq.setFromAxisAngle(AY, lerp(f.gy || 0, 0.5, e)));
-    boy.root.quaternion.copy(f.fq).multiply(tq.setFromAxisAngle(AY, -0.5 * e));
+    girl.root.position.copy(girlFly).lerp(KISS_G(), e);
+    boy.root.position.copy(F(0, 19, 0)).lerp(KISS_B(), e).add(F(0, Math.sin(p * Math.PI) * 4, 0));
+    girl.root.quaternion.copy(f.fq).multiply(tq.setFromAxisAngle(AY, lerp(f.gy || 0, KISS_YAW, e)));
+    boy.root.quaternion.copy(f.fq).multiply(tq.setFromAxisAngle(AY, lerp(0, -KISS_YAW, e)));
     animateCharacter(boy, t, 0, 'fly');
-    look = F(0, 7, 0).lerp(F(-15, 17, 6), e);
-    if (p >= 1) { next('fly'); bean.visible = false; burst(F(-14.9, 24, 6), 0xffffff, 18, 6, 2, 2, heartTex, false); }
-  } else if (f.phase === 'fly') {
-    const p = clamp(f.t / 7, 0, 1), e = ease(p);
-    const lift = F(Math.sin(p * 6) * 3, 60 * e, -30 * e);
-    girl.root.position.copy(girlFly).add(lift);
-    boy.root.position.copy(F(-12.8, 15, 6)).add(lift);
+    camPos = F(-14.5, 20, 38); look = F(0, 7, 0).lerp(F(-14.5, 19, 6), e); camSpeed = 1.2;
+    if (p >= 1) { next('kiss'); bean.visible = false; }
+  } else if (f.phase === 'kiss') {             // a little kiss, with hearts
+    const p = clamp(f.t / 3.2, 0, 1), lean = Math.sin(Math.min(1, p * 1.6) * Math.PI / 2) * (p < 0.85 ? 1 : 1 - (p - 0.85) / 0.15);
+    girl.root.position.copy(KISS_G()).add(F(0.25 * lean, 0, 0));
+    boy.root.position.copy(KISS_B()).add(F(-0.25 * lean, 0, 0));
+    girl.root.quaternion.copy(f.fq).multiply(tq.setFromAxisAngle(AY, KISS_YAW)).multiply(tq.setFromAxisAngle(AX, 0.16 * lean));
+    boy.root.quaternion.copy(f.fq).multiply(tq.setFromAxisAngle(AY, -KISS_YAW)).multiply(tq.setFromAxisAngle(AX, 0.16 * lean));
     animateCharacter(boy, t, 0, 'fly');
-    if (Math.random() < 0.25) burst(girl.root.position.clone().add(F(2, 2, 0)), 0xffffff, 1, 2, 1.4, 2.5, heartTex, false);
-    look = F(-15, 17, 6).lerp(F(-15, 40, -10), e);
-    if (p > 0.55 && !f.ended) { f.ended = true; openOverlay('ending'); }
+    if (!f.kissed && p > 0.25) { f.kissed = true; tone(1046.5, 0, 0.5, 0.06, 'sine'); tone(1318.5, 0.12, 0.7, 0.05, 'sine'); burst(F(-14.5, 22.5, 6), 0xffffff, 10, 4, 1.6, 2.2, heartTex, false); }
+    f.heartT = (f.heartT || 0) - dt;
+    if (f.kissed && f.heartT <= 0) { f.heartT = 0.35; burst(F(-14.5 + (Math.random() - 0.5) * 2, 22, 6), 0xffffff, 1, 2, 1 + Math.random() * 0.8, 2.4, heartTex, false); }
+    camPos = F(-14.5, 20, 34); look = F(-14.5, 19, 6); camSpeed = 1;
+    if (p >= 1) { next('orbit'); startOrbit(); }
+  } else if (f.phase === 'orbit') {            // the planet comes back, and everyone circles it together
+    const T = f.t;
+    // the cake melts away and the planet grows back where it was
+    cake.scale.setScalar(Math.max(0.001, 1 - ease(clamp(T / 1.8, 0, 1))));
+    if (T > 1.8) cake.visible = false;
+    if (T > 0.8 && !planetGroup.visible) { planetGroup.visible = true; planetGroup.scale.setScalar(0.01); burst(V(), 0xffffff, 50, 18, 2.4, 1.6); chime(); }
+    if (planetGroup.visible) planetGroup.scale.setScalar(Math.max(0.01, easeOutBack(clamp((T - 0.8) / 2.6, 0, 1))));
+    const o = f.orbit;
+    o.angle += dt * 0.11;
+    o.items.forEach((it, k) => {
+      const th = o.angle + k * (Math.PI * 2 / o.items.length), r = it.radius;
+      const pos = o.u.clone().multiplyScalar(Math.cos(th) * r).addScaledVector(o.v, Math.sin(th) * r).addScaledVector(o.n, it.lift + Math.sin(t * 1.1 + k) * 0.5);
+      const tan = o.u.clone().multiplyScalar(-Math.sin(th)).addScaledVector(o.v, Math.cos(th));
+      const q = new THREE.Quaternion().setFromRotationMatrix(new THREE.Matrix4().makeBasis(V().crossVectors(o.n, tan), o.n, tan));
+      const e = ease(clamp((T - 1.2 - k * 0.05) / 3.2, 0, 1));   // glide from wherever they are into the ring
+      it.obj.position.copy(it.from).lerp(pos, e);
+      it.obj.quaternion.copy(it.fromQ).slerp(q, e);
+      if (it.spin) it.obj.rotateY(Math.sin(t * 0.9 + k) * 0.25 * e);
+      it.obj.scale.setScalar(lerp(it.fromS, it.s, e));
+    });
+    const ep = ease(clamp(T / 1.6, 0, 1));
+    for (const pr of f.pair) { pr.ch.root.position.lerpVectors(pr.p0, pr.p1, ep); pr.ch.root.quaternion.copy(pr.q0).slerp(new THREE.Quaternion(), ep); pr.ch.root.scale.setScalar(lerp(pr.s0, 2.6, ep)); }
+    animateCharacter(boy, t, 0, 'fly');
+    camPos = F(0, 38, 102); look = F(0, 2, 0); camSpeed = 0.7;
+    if (T > 8 && !f.ended) { f.ended = true; openOverlay('ending'); }
   }
 
   // night falls once she leaves the ground
   if (f.phase !== 'lift' || f.t > 2.5) { const nk = 1 - Math.exp(-dt * 0.7); sky.material.uniforms.uTop.value.lerp(SKY.nightTop, nk); sky.material.uniforms.uBottom.value.lerp(SKY.nightBottom, nk); starsMat.opacity = Math.min(1, starsMat.opacity + dt * 0.25); }
   // she turns to face the cake (the meet phase handles her turn toward him)
-  if (f.phase !== 'meet' && f.phase !== 'fly') {
+  if (!['meet', 'kiss', 'orbit'].includes(f.phase)) {
     const rel = cake.localToWorld(V(0, CAKE_TOP, 0)).sub(girl.root.position).applyQuaternion(f.fq.clone().invert());
     const target = cake.visible ? Math.atan2(rel.x, rel.z) : 0;
     f.gy = lerp(f.gy || 0, target, 1 - Math.exp(-dt * 3));
@@ -1479,7 +1527,7 @@ function updateFinale(dt, t) {
 
   // candles flicker, lean away when she blows, and go out
   f.gust = Math.max(0, (f.gust || 0) - dt * 3);
-  const blownOut = ['blown', 'awaitCut', 'cut', 'beanRise', 'beanWait', 'beanOpen', 'meet', 'fly'].includes(f.phase);
+  const blownOut = ['blown', 'awaitCut', 'cut', 'beanRise', 'beanWait', 'beanOpen', 'meet', 'kiss', 'orbit'].includes(f.phase);
   for (const [k, fl] of flames.entries()) {
     if (blownOut && fl.out < 1) {
       if (fl.out === 0) puff(fl.half.localToWorld(fl.base.clone().add(V(0, 0.6, 0))), V(0, 2, 0).applyQuaternion(f.fq), 1.2, 1.6, 0xd8d4de);
@@ -1494,7 +1542,7 @@ function updateFinale(dt, t) {
 
   // chouchous tumbling through space, slowly settling into a gentle drift
   const axis = F(0, 1, 0);
-  for (const c of flung) {
+  if (f.phase !== 'orbit') for (const c of flung) {
     c.g.position.addScaledVector(c.vel, dt);
     c.vel.multiplyScalar(Math.exp(-dt * 0.85));
     const d = c.g.position.length();

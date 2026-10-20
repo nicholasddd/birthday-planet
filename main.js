@@ -295,7 +295,7 @@ function wakeStatue() {
   burst(top, 0xffe6b0, 24, 6, 0.8, 1.6, glowTex, false);
   burst(statue.group.localToWorld(V(0, 4.6, 0)), 0xffffff, 6, 2.5, 1, 1.8, heartTex, false);
   chime(); popSound();
-  toast('✨ The stone chouchou woke up!');
+  toast('✨ The stone chouchou woke up! Hop up onto the stage');
 }
 function updateStatue(dt, t) {
   const glowing = allFound() && state !== 'finale';
@@ -315,8 +315,9 @@ function updateStatue(dt, t) {
     g.root.rotation.y = lerp(g.root.rotation.y, Math.atan2(rel.x, rel.z), 0.05);
     for (const [j, l] of g.leaves.entries()) l.rotation.x = Math.sin(t * 2 + j) * 0.12;
     // "Give the 24 flowers to the giant chouchou?" — asked every time she comes close
-    if (d > 11) statue.armed = true;
-    if (d < 8.2 && statue.armed && !modalOpen && !introLock && statue.t > 1.2) { statue.armed = false; openOverlay('gift'); }
+    const onStage = !airborne && girlH > world.stage.top - 0.3 && girl.root.position.clone().normalize().angleTo(world.stage.dir) * R < world.stage.r;
+    if (!onStage) statue.armed = true;   // asked every time she climbs up onto the stone stage
+    if (onStage && statue.armed && !modalOpen && !introLock && statue.t > 1.2) { statue.armed = false; openOverlay('gift'); }
   }
 }
 
@@ -473,7 +474,7 @@ function updateTimeUI() {
   const next = u < TOTAL ? ` · next in ${fmtDur(unlockTime(u) - now())}` : '';
   if (state === 'finale') st.classList.add('hidden');
   else if (collected.size === TOTAL) {
-    st.innerHTML = statue.state === 'awake' ? `${dot}The giant chouchou is waiting for you` : `${dot}All 24 letters found · go back to the stone chouchou`;
+    st.innerHTML = statue.state === 'awake' ? `${dot}The giant chouchou is waiting on the stone stage` : `${dot}All 24 letters found · go back to the stone chouchou`;
   } else if (u === 0) st.innerHTML = `${dot}Something stirs in ${fmtDur(startMs - now())}`;
   else if (waiting > 0) st.innerHTML = known()
     ? `${dot}${waiting > 1 ? waiting + ' chouchous are' : 'A chouchou is'} stuck${next}`
@@ -778,7 +779,7 @@ if (DEBUG) {
   window.__roamers = () => roamers.map(r => r.mode);
   window.__quality = () => quality.level;
   window.__music = () => music?.track ?? null;
-  window.__three = () => ({ renderer, scene, composer, camera, roamers, particles, smoke, obstacles, pq, girl, world, WATER_SPOTS });
+  window.__three = () => ({ renderer, scene, composer, camera, roamers, particles, smoke, obstacles, pq, girl, world, WATER_SPOTS, finale, labels });
   window.__girl = () => ({ h: +girlH.toFixed(2), air: airborne, jump: +jumpHeight().toFixed(2) });
   window.__dist = () => roamers.map(r => +girl.root.position.distanceTo(r.group.position).toFixed(2));
 }
@@ -1483,6 +1484,33 @@ function updateSmoke(dt) {
   }
 }
 
+// little speech pops: a word or emoji that bounces in near someone, bobs, then fades away
+const labels = [];
+function popLabel(text, at, height = 1.6, life = 2.6, color = '#ff5c98') {
+  const c = document.createElement('canvas'), x = c.getContext('2d');
+  const font = `700 120px Caveat, 'Dancing Script', cursive`;
+  x.font = font; const w = Math.ceil(x.measureText(text).width) + 60;
+  c.width = w; c.height = 170;
+  x.font = font; x.textAlign = 'center'; x.textBaseline = 'middle'; x.lineJoin = 'round';
+  x.lineWidth = 18; x.strokeStyle = 'rgba(255,255,255,0.95)'; x.strokeText(text, w / 2, 88);
+  x.fillStyle = color; x.fillText(text, w / 2, 88);
+  const tex = new THREE.CanvasTexture(c); tex.colorSpace = THREE.SRGBColorSpace;
+  const sp = new THREE.Sprite(new THREE.SpriteMaterial({ map: tex, transparent: true, depthTest: false, depthWrite: false, fog: false, toneMapped: false }));
+  sp.renderOrder = 20; scene.add(sp);
+  labels.push({ sp, at, h: height, w: height * (w / 170), t: 0, life, seed: Math.random() * 6 });
+}
+function updateLabels(dt) {
+  for (let k = labels.length - 1; k >= 0; k--) {
+    const L = labels[k]; L.t += dt;
+    const pop = easeOutBack(clamp(L.t / 0.35, 0, 1)), fade = clamp((L.life - L.t) / 0.5, 0, 1);
+    L.sp.position.copy(L.at()).addScaledVector(camera.up, L.t * 0.25 + Math.sin(L.t * 4 + L.seed) * 0.08);
+    L.sp.scale.set(L.w * pop, L.h * pop, 1);
+    L.sp.material.rotation = Math.sin(L.t * 3 + L.seed) * 0.06;
+    L.sp.material.opacity = fade;
+    if (L.t >= L.life) { scene.remove(L.sp); L.sp.material.map.dispose(); L.sp.material.dispose(); labels.splice(k, 1); }
+  }
+}
+
 function startFinale() {
   if (state === 'finale') return;
   if (!statue.giant) wakeStatue();
@@ -1591,7 +1619,8 @@ function updateFinale(dt, t) {
   const f = finale; f.t += dt;
   const full = F(10, 22, 74), fullLook = F(0, 5, 0);
   let camPos = full, look = fullLook, camSpeed = 1.6;
-  const girlFly = F(-17, 15, 6), girlUp = F(0, R + 10, 0);
+  const girlFly = F(-17, 15, 6), girlUp = F(0, R + 17, 0);
+  const fullFar = F(12, 26, 96), fullFarLook = F(0, 10, 0);   // pulled back far enough to see the giant floating high above
 
   const G = f.giant, seatAt = () => G.obj.localToWorld(V(0, G.seat, 0));
   if (f.phase === 'gift') {                       // she hands over all 24 flowers, one after another
@@ -1615,22 +1644,51 @@ function updateFinale(dt, t) {
     if (p >= 1 && !f.riding) { f.riding = true; popSound(); burst(seatAt(), 0x9fd27a, 10, 3, 0.5, 0.7); }
     const mid = girl.root.position.clone().lerp(G.p0, 0.5);
     camPos = mid.clone().add(F(7, 6, -10)); look = mid.clone().add(F(0, 2.5, 0)); camSpeed = 2;
-    if (f.t > 2) { next('lift'); noiseSound(2.5, 500, 0.05, 1.5); }
-  } else if (f.phase === 'lift') {                // the giant chouchou puffs up like a balloon and floats into space, her on top
-    const p = clamp(f.t / 8, 0, 1), e = ease(clamp((p - 0.18) / 0.82, 0, 1));
-    const puffUp = 1 + 0.45 * easeOutBack(clamp(p / 0.2, 0, 1)), wob = Math.sin(f.t * 9) * 0.04 * Math.exp(-f.t * 0.8);
-    if (p < 0.2 && Math.random() < dt * 10) noiseSound(0.25, 300 + p * 2000, 0.05, 0.05);   // fwoomp
-    const gs = 2.4 * puffUp * lerp(1, 2.4, e);
-    G.obj.scale.set(gs * (1.12 + wob), gs * (1 - wob), gs * (1.12 + wob));
-    const goal = girlUp.clone().addScaledVector(F(0, 1, 0), -G.seat * gs);
+    if (f.t > 2) next('inflate');
+  } else if (f.phase === 'inflate') {             // three big breaths: puff… puff… PUFF — round as a balloon
+    const T = f.t, BREATHS = [[0.2, 1.25], [1.1, 1.5], [2.0, 1.85]];
+    let lvl = 1, squash = 0;
+    BREATHS.forEach(([at, to], i) => {
+      if (T < at) return;
+      const k = (T - at) / 0.7, from = i ? BREATHS[i - 1][1] : 1;
+      lvl = lerp(from, to, elasticOut(clamp(k, 0, 1)));
+      squash = Math.sin(clamp(k, 0, 1) * Math.PI * 3) * 0.08 * (1 - clamp(k, 0, 1));
+      if (!(f.breath ??= [])[i]) {
+        f.breath[i] = true;
+        noiseSound(0.6, 500 + i * 400, 0.14, 0.05); tone(220 + i * 110, 0, 0.5, 0.08, 'sine'); tone(330 + i * 160, 0.15, 0.5, 0.06, 'sine');
+        burst(G.obj.localToWorld(V(0, 0.8, 0)), 0xffffff, 14, 5 + i * 2, 0.6, 0.9);
+      }
+    });
+    f.puff = lvl;
+    const gs = 2.4;
+    G.obj.scale.set(gs * Math.pow(lvl, 1.15) * (1 + squash), gs * Math.pow(lvl, 0.8) * (1 - squash), gs * Math.pow(lvl, 1.15) * (1 + squash));
+    G.obj.position.copy(G.p0);
+    for (const [j, l] of G.ch.leaves.entries()) l.rotation.x = -0.25 * (lvl - 1);   // leaves lifting as it fills up
+    girl.root.position.copy(seatAt());
+    const mid = G.obj.localToWorld(V(0, G.seat * 0.55, 0));
+    camPos = mid.clone().add(F(9, 3, -15)); look = mid; camSpeed = 2;
+    if (T > 3.1) { next('lift'); noiseSound(2.5, 500, 0.05, 1.5); }
+  } else if (f.phase === 'lift') {                // ...and floats right up off the planet into space, her on top
+    const p = clamp(f.t / 9, 0, 1), e = ease(p);
+    const grow = lerp(1, 1.5, e), gs = 2.4 * grow, lvl = f.puff || 1.85;
+    const bob = Math.sin(f.t * 2.2) * 0.03;
+    G.obj.scale.set(gs * Math.pow(lvl, 1.15) * (1 + bob), gs * Math.pow(lvl, 0.8) * (1 - bob), gs * Math.pow(lvl, 1.15) * (1 + bob));
+    const seatH = G.seat * gs * Math.pow(lvl, 0.8);
+    const goal = girlUp.clone().addScaledVector(F(0, 1, 0), -G.seat * 2.4 * 1.5 * Math.pow(lvl, 0.8));
     G.obj.position.copy(G.p0).lerp(goal, e);
-    for (const [j, l] of G.ch.leaves.entries()) l.rotation.x = Math.sin(f.t * 5 + j) * 0.3;   // flapping its leaves to fly
-    for (const [j, ft] of (G.ch.feet || []).entries()) ft.rotation.x = Math.sin(f.t * 7 + j * Math.PI) * 0.5;
+    G.obj.quaternion.copy(f.fq).multiply(tq.setFromAxisAngle(AY, f.giantYaw + Math.sin(f.t * 0.7) * 0.2)).multiply(tq.setFromAxisAngle(AX, Math.sin(f.t * 1.3) * 0.05));
+    for (const [j, l] of G.ch.leaves.entries()) l.rotation.x = Math.sin(f.t * 6 + j) * 0.35;   // flapping its leaves like wings
+    for (const [j, ft] of (G.ch.feet || []).entries()) ft.rotation.x = Math.sin(f.t * 8 + j * Math.PI) * 0.6;
     girl.root.position.copy(seatAt());
     girl.root.scale.setScalar(lerp(1, 2.4, e));
-    const z = ease(clamp((p - 0.15) / 0.85, 0, 1));
-    camPos = girl.root.position.clone().add(F(0, 4, -12)).lerp(full, z);
-    look = girl.root.position.clone().lerp(fullLook, z);
+    // a little trail of cloud puffs drifting down behind it
+    f.trail = (f.trail ?? 0) - dt;
+    if (f.trail <= 0 && p < 0.85) { f.trail = 0.12; puff(G.obj.position.clone().addScaledVector(F(0, 1, 0), -0.4 * seatH / G.seat).add(randDir(Math.random).multiplyScalar(gs * 0.4)), F(0, -3, 0).add(randDir(Math.random)), 1.2 * gs, 1.8); }
+    // the camera rides along beside it (the planet dropping away below), then pulls back to see everything
+    const mid = G.obj.position.clone().addScaledVector(F(0, 1, 0), seatH * 0.5);
+    const z = ease(clamp((p - 0.55) / 0.45, 0, 1));
+    camPos = mid.clone().add(F(13, -2, -24).multiplyScalar(lerp(1, 1.7, e))).lerp(fullFar, z);
+    look = mid.clone().lerp(fullFarLook, z);
     camSpeed = 3;
     if (p >= 1) { next('rumble'); noiseSound(3.4, 120, 0.5, 2.5); }
   } else if (f.phase === 'rumble') {              // the planet shakes harder and harder...
@@ -1639,6 +1697,7 @@ function updateFinale(dt, t) {
     planetGroup.position.copy(randDir(Math.random).multiplyScalar(shake * 0.5));
     girl.root.position.copy(girlUp);
     G.obj.position.copy(girlUp).addScaledVector(F(0, 1, 0), -G.seat * G.obj.scale.y).add(randDir(Math.random).multiplyScalar(0.1));
+    camPos = fullFar; look = fullFarLook;
     if (Math.random() < dt * 14) {
       const d = randDir(Math.random);
       burst(d.multiplyScalar(R + 0.3), 0xb48a64, 4, 3, 0.8, 0.7, glowTex, false);
@@ -1719,6 +1778,7 @@ function updateFinale(dt, t) {
         f.pops[k] = true; popSound();
         burst(bean.localToWorld(V(0, k === 0 ? 0.6 : k === 1 ? 0 : -0.9, 0.9)), [0xfff176, 0xffffff, 0xffc0d0][k], 18, 8, 0.8, 1);
         if (k === 0) { shake = 0.35; collectSound(); }
+        if (k === 1) popLabel('👋 hi!', () => sb.head.localToWorld(V(0.9, 0.95, 0.3)), 2.2, 2.6, '#e8566f');   // a little wave hello
       }
     });
     sb.pop = popAt.map(at => clamp((T - at) / 0.45, 0, 1));
@@ -1755,6 +1815,7 @@ function updateFinale(dt, t) {
       burst(at, 0xe8283f, 4, 3, 0.35, 0.6, glowTex, false);
       burst(at.clone().add(F(0, 1.5, 0)), 0xffffff, 1, 1.5, 0.9, 1.6, heartTex, false);
       f.bites = (f.bites || 0) + 1;
+      if (f.bites === 1) popLabel('mankeaw mankeaw', () => sb.bite.getWorldPosition(V()).add(F(-1.4, 2.8, 1.2)), 2.1, 3.2);
     }
     if ((f.bites || 0) >= 2) sb.bite.scale.setScalar(Math.min(1, sb.bite.scale.x + dt * 4));   // the bite mark appears
     // he's surprised… then blushes and turns to look at her
@@ -1808,7 +1869,7 @@ function updateFinale(dt, t) {
   }
 
   // night falls once she leaves the ground
-  if (!['gift', 'board'].includes(f.phase) && (f.phase !== 'lift' || f.t > 4)) { const nk = 1 - Math.exp(-dt * 0.7); sky.material.uniforms.uTop.value.lerp(SKY.nightTop, nk); sky.material.uniforms.uBottom.value.lerp(SKY.nightBottom, nk); starsMat.opacity = Math.min(1, starsMat.opacity + dt * 0.25); }
+  if (!['gift', 'board', 'inflate'].includes(f.phase) && (f.phase !== 'lift' || f.t > 4)) { const nk = 1 - Math.exp(-dt * 0.7); sky.material.uniforms.uTop.value.lerp(SKY.nightTop, nk); sky.material.uniforms.uBottom.value.lerp(SKY.nightBottom, nk); starsMat.opacity = Math.min(1, starsMat.opacity + dt * 0.25); }
   // she turns to face the cake (the meet phase handles her turn toward him)
   if (!['meet', 'bite', 'orbit'].includes(f.phase)) {
     const rel = cake.localToWorld(V(0, CAKE_TOP, 0)).sub(girl.root.position).applyQuaternion(f.fq.clone().invert());
@@ -1850,6 +1911,7 @@ function updateFinale(dt, t) {
     c.g.scale.setScalar(c.g.scale.x < cap ? Math.min(cap, c.g.scale.x + dt * 0.6) : Math.max(cap, c.g.scale.y - dt * 1.5));
   }
   updateSmoke(dt);
+  updateLabels(dt);
 
   const k = 1 - Math.exp(-dt * camSpeed);
   camera.position.lerp(camPos, k);

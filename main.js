@@ -1234,6 +1234,37 @@ function updateChickens(dt, t) {
     root.position.y = moving ? Math.abs(Math.sin(t * 9 + r.phase)) * 0.16 : 0;
     root.rotation.z = moving ? Math.sin(t * 9 + r.phase) * 0.1 : 0;
   }
+  separateRoamers();
+}
+
+// chouchous never squash into each other: overlapping pairs get nudged apart along the ground.
+// Ones that are settled (at the waterhole, handing over a letter, eating) hold their spot and the other steps aside.
+const ROAMER_GAP = 1.3;
+const _sa = V(), _sb = V(), _sd = V(), _sq = new THREE.Quaternion();
+function separateRoamers() {
+  const live = roamers.filter(r => r.mode !== 'flung' && r.mode !== 'pop');
+  const fixed = r => ['water', 'float', 'present'].includes(r.mode) || r.munch > 0 || r.feeding;
+  for (let i = 0; i < live.length; i++) for (let j = i + 1; j < live.length; j++) {
+    const a = live[i], b = live[j];
+    _sa.copy(AY).applyQuaternion(a.q); _sb.copy(AY).applyQuaternion(b.q);
+    const dist = _sa.angleTo(_sb) * R;
+    if (dist >= ROAMER_GAP) continue;
+    const fa = fixed(a), fb = fixed(b);
+    if (fa && fb) continue;
+    const push = (ROAMER_GAP - dist) / (fa || fb ? 1 : 2);
+    for (const [r, from, to, still] of [[a, _sb, _sa, fa], [b, _sa, _sb, fb]]) {
+      if (still) continue;
+      // rotate it away from the other one, around the axis perpendicular to both
+      _sd.crossVectors(from, to);
+      if (_sd.lengthSq() < 1e-10) _sd.copy(randDir(Math.random)).cross(to);   // exactly on top of each other: pick a random direction
+      _sd.normalize();
+      _sq.setFromAxisAngle(_sd, push / R);
+      const nd = to.clone().applyQuaternion(_sq);
+      if (blocked(to, nd, 0.4) || world.standHeight(nd).wet && !r.home) continue;   // don't shove it into a tree, the stage or the lake
+      r.q.premultiply(_sq).normalize();
+      placeRoamer(r);
+    }
+  }
 }
 
 // ============================================================ strawberry shortcake (finale)

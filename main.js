@@ -212,6 +212,15 @@ scene.add(boy.root);
 const boyPal = makeChibi({ ...CONFIG.boy, hair: 0x231915, hairSheen: 0x6e5a4e }, false);
 boyPal.root.visible = false;
 scene.add(boyPal.root);
+// his own parasol, float ring and star, used whenever she uses hers
+const boyGear = (() => {
+  const par = makeParasol(), ring = makeFloat(), holder = new THREE.Group();
+  holder.rotation.order = 'ZYX'; holder.position.y = -0.44; holder.add(par.root); holder.visible = false;
+  par.root.rotation.set(-0.17, 0, 0.12); boyPal.parts.shL.add(holder);
+  ring.root.position.y = 0.32; ring.root.visible = false; boyPal.root.add(ring.root);
+  const cake = makeCupcake(); cake.root.position.set(0, 0.86, 0.5); cake.root.rotation.x = -0.25; cake.root.visible = false; boyPal.rig.add(cake.root);
+  return { holder, ring, cake, floating: false };
+})();
 
 // arrow above her head pointing at the nearest stuck chicken
 const arrowPivot = new THREE.Group(); arrowPivot.position.y = 3.1; girl.root.add(arrowPivot);
@@ -234,7 +243,7 @@ wandHolder.visible = parasolHolder.visible = false;
 floatRing.root.position.y = 0.32; floatRing.root.visible = false; girl.root.add(floatRing.root);
 const cupcake = makeCupcake();   // her sunny-day snack, held up in both hands when she sits for a while
 cupcake.root.position.set(0, 0.86, 0.5); cupcake.root.rotation.x = -0.25; cupcake.root.visible = false; girl.rig.add(cupcake.root);
-let nomT = 0;
+let nomT = 0, herPose = 'walk';
 // the wand's light is always in the scene (just dark when put away), so switching it on never stalls to rebuild shaders
 // I: she raises the wand, its star lifts off and floats up above her head, lighting a soft pool around her like a
 // spotlight; I again calls it back down. The light is always in the scene (just dark when off) so switching never stalls.
@@ -985,18 +994,54 @@ function enterPostGame() {
   berryPal.q.copy(pq).multiply(new THREE.Quaternion().setFromAxisAngle(AX, -2.4 / R));
   updateTimeUI();
 }
+let boyStar = null;
 function updateBerryPal(dt, t) {
   if (!postGame || state !== 'play') return;
   const me = AY.clone().applyQuaternion(pq), him = AY.clone().applyQuaternion(berryPal.q), d = me.angleTo(him) * R;
-  berryPal.moving = d > 2.4;
-  if (berryPal.moving) walkToward(berryPal, me, clamp(d * 1.8, 2, 7), dt, 2.2);   // walks after her (waits at the water's edge)
-  else turnToward(berryPal, girl.root.position, dt * 0.5);
-  const at = AY.clone().applyQuaternion(berryPal.q);
+  const inWater = world.standHeight(him).wet;
+  berryPal.moving = d > (gear.floating ? 2.8 : 2.4);
+  if (berryPal.moving) {
+    // follows her; onto the lagoon only when she's floating there too (and back out again when she isn't)
+    turnToward(berryPal, girl.root.position, dt);
+    const speed = clamp(d * 1.8, 2, gear.floating || inWater ? 3.4 : 7);
+    for (const side of [0, 0.9, -0.9, 1.6, -1.6]) {
+      const nq = berryPal.q.clone().multiply(tq.setFromAxisAngle(AY, side)).multiply(tq.setFromAxisAngle(AX, (speed * dt) / R));
+      const nd = AY.clone().applyQuaternion(nq), wetThere = world.standHeight(nd).wet;
+      const ok = !blocked(him, nd, 0.4) && (!wetThere || (gear.floating ? onLagoon(nd) : inWater && nd.angleTo(world.lake.c) > him.angleTo(world.lake.c)));
+      if (ok) { berryPal.q.copy(nq).multiply(tq.setFromAxisAngle(AY, -side)).normalize(); break; }
+    }
+  } else turnToward(berryPal, girl.root.position, dt * 0.5);
+  const at = AY.clone().applyQuaternion(berryPal.q), wetNow = world.standHeight(at).wet;
+  // his float: on whenever he's out on the water
+  boyGear.floating = wetNow;
+  boyGear.ring.root.visible = wetNow;
+  if (wetNow) boyGear.ring.root.rotation.set(Math.sin(t * 1.5) * 0.05, 0, Math.sin(t * 1.2 + 1) * 0.06);
   const onStageTop = at.angleTo(world.stage.dir) * R < world.stage.r;   // (only if he started up there with her)
-  boyPal.root.position.copy(at).multiplyScalar(R + (onStageTop ? world.stage.top : world.standHeight(at).h));
+  const h = wetNow ? world.lake.water - 0.05 + Math.sin(t * 2.1 + 1) * 0.06 : onStageTop ? world.stage.top : world.standHeight(at).h;
+  boyPal.root.position.copy(at).multiplyScalar(R + h);
   boyPal.root.quaternion.copy(berryPal.q);
   berryPal.walk = lerp(berryPal.walk, berryPal.moving ? 1 : 0, 0.15);
-  animateCharacter(boyPal, t, berryPal.walk, 'walk');
+  // when he's beside her he copies whatever she's doing: dancing, jumping, stretching, sitting, stargazing, snacking…
+  const copy = !berryPal.moving && !wetNow && herPose !== 'walk' && herPose !== 'pull' ? herPose : null;
+  const herLift = airborne ? Math.max(0, girlH - world.standHeight(me).h) : 0;
+  if (copy === 'jump' || herLift > 0.05) boyPal.root.position.addScaledVector(at, herLift);   // hops when she hops
+  animateCharacter(boyPal, t + 0.15, berryPal.walk, wetNow ? 'sit' : copy || (herLift > 0.05 ? 'jump' : 'walk'));
+  if (wetNow) boyPal.rig.position.y = 0.05;
+  if (copy === 'dance') boyPal.root.quaternion.multiply(tq.setFromAxisAngle(AY, t * 1.8));   // spinning along with her
+  boyGear.cake.root.visible = copy === 'eat';
+  if (copy === 'eat') boyGear.cake.root.position.y = 0.86 + Math.abs(Math.sin((t + 0.4) * 6)) * 0.04;
+  // his parasol, whenever hers is out
+  boyGear.holder.visible = gear.parasol;
+  if (gear.parasol) { const sh = boyPal.parts.shL; sh.rotation.set(-0.85 + Math.sin(t * 2 + 2) * 0.03, 0, 0.25); boyGear.holder.rotation.set(-sh.rotation.x, 0, -sh.rotation.z); }
+  // his star, floating up beside hers
+  if (!boyStar) { boyStar = new THREE.Group(); boyStar.add(new THREE.Mesh(wand.star.geometry, wand.star.material), wand.halo.clone()); boyStar.children[1].position.set(0, 0, 0); boyStar.visible = false; scene.add(boyStar); }
+  const starOn = sky1.visible && starFx.phase !== 'fall';
+  if (starOn && !boyStar.visible) { boyStar.visible = true; boyStar.position.copy(boyPal.root.localToWorld(V(0, 1.4, 0.4))); }
+  if (!starOn && boyStar.visible && starFx.phase !== 'raise') { boyStar.visible = false; burst(boyStar.position.clone(), 0xffe9a8, 8, 2, 0.3, 0.8); }
+  if (boyStar.visible) {
+    boyStar.position.lerp(boyPal.root.localToWorld(V(0, 3.4 + Math.sin(t * 1.6 + 2) * 0.15, 0.35)), 1 - Math.exp(-dt * 2));
+    boyStar.children[0].rotation.y += dt * 1.2;
+  }
   bean.rotation.x += dt * 0.12; bean.rotation.z += dt * 0.07;   // the strawberry tumbling slowly out there
 }
 
@@ -1789,6 +1834,7 @@ function updatePlayer(dt, t) {
   else if (pose === 'walk' && idleT > 25) pose = 'sit';
   else if (pose === 'walk' && idleT > 10 && idleT < 12.5) pose = 'stretch';
   animateCharacter(girl, t, walkAmt, pose);
+  herPose = pose;
   cupcake.root.visible = pose === 'eat';
   if (pose === 'eat') {   // munching: the cupcake bobs to her mouth, with the odd crumb and a soft "nom"
     cupcake.root.position.y = 0.86 + Math.abs(Math.sin(t * 6)) * 0.04;

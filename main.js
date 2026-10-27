@@ -44,9 +44,21 @@ try { collected = new Set(JSON.parse(store.get('bday-collected') || '[]')); } ca
 let pulled = new Set();      // chickens pulled out of the ground (letter may not be taken yet)
 try { pulled = new Set(JSON.parse(store.get('bday-pulled') || '[]')); } catch {}
 for (const i of collected) pulled.add(i);
+// Letters always arrive in order, 1 → 24, whichever chouchou hands one over: letterOf[chouchou] = letter number.
+let letterOf = {};
+try { letterOf = JSON.parse(store.get('bday-letterof') || '{}'); } catch {}
+const lettersGiven = () => Object.keys(letterOf).length;
+for (const i of [...collected].sort((a, b) => a - b)) if (!(i in letterOf)) letterOf[i] = lettersGiven();   // older saves
+const chouchouOf = k => +Object.keys(letterOf).find(i => letterOf[i] === k);   // which chouchou brought letter k
+function takeLetter(i) {   // chouchou i hands over its letter: it gets the next one in sequence
+  if (!(i in letterOf)) letterOf[i] = lettersGiven();
+  collected.add(i);
+  return letterOf[i];
+}
 const saveProgress = () => {
   store.set('bday-collected', JSON.stringify([...collected]));
   store.set('bday-pulled', JSON.stringify([...pulled]));
+  store.set('bday-letterof', JSON.stringify(letterOf));
 };
 
 // ============================================================ renderer / scene
@@ -516,16 +528,20 @@ function renderCatalogue() {
   const u = unlockedCount();
   $('catTitle').textContent = known() ? 'Your chouchous' : 'Your treasures';
   $('catSummary').textContent = `${collected.size} of ${TOTAL} letters received`;
+  // one slot per letter, in order: received ones first, then chouchous still holding theirs, then stuck ones, then the hours to come
+  const got = lettersGiven();
+  let holding = 0; for (let i = 0; i < u; i++) if (pulled.has(i) && !collected.has(i)) holding++;
   for (let i = 0; i < TOTAL; i++) {
     const el = document.createElement('button');
     const L = CONFIG.letters[i] || {};
-    if (collected.has(i)) {
+    if (i < got) {
+      const c = chouchouOf(i);   // colour + flower of the chouchou that brought it
       el.className = 'slot collected';
-      el.style.setProperty('--c', '#' + new THREE.Color(PALETTE[i % PALETTE.length]).getHexString());
-      el.innerHTML = `<span class="em">🐣${EMOJI[i % EMOJI.length]}</span><b></b>`;
+      el.style.setProperty('--c', '#' + new THREE.Color(PALETTE[c % PALETTE.length]).getHexString());
+      el.innerHTML = `<span class="em">🐣${EMOJI[c % EMOJI.length]}</span><b></b>`;
       el.querySelector('b').textContent = L.title || `Hour ${i + 1}`;
       el.onclick = () => { closeOverlay('catalogue'); openLetter(i); };
-    } else if (pulled.has(i)) {
+    } else if (i < got + holding) {
       el.className = 'slot waiting';
       el.innerHTML = `<span class="em">🐣💌</span><b>Hour ${i + 1}</b><span>Has a letter for you!</span>`;
       el.onclick = () => closeOverlay('catalogue');
@@ -567,7 +583,8 @@ function openLetter(i) {
   $('letterGreet').textContent = L.greet || `My dearest ${CONFIG.herName.replace(/^my\s+/i, '')},`;
   $('letterFrom').textContent = CONFIG.fromName || '';
   $('letterText').replaceChildren(...(L.text || '').split('\n').map(line => { const p = document.createElement('p'); p.textContent = line; return p; }));
-  $('letterFlower').innerHTML = flowerSVG('#' + new THREE.Color(PALETTE[i % PALETTE.length]).getHexString());
+  const c = chouchouOf(i);   // the flower its chouchou carried
+  $('letterFlower').innerHTML = flowerSVG('#' + new THREE.Color(PALETTE[(Number.isNaN(c) ? i : c) % PALETTE.length]).getHexString());
   const img = $('letterImg'), body = $('letterBody');
   img.classList.add('hidden'); body.classList.add('hidden');
   if (L.image) {
@@ -808,13 +825,13 @@ if (DEBUG) {
     const d = b.position.clone().normalize();
     pq.setFromUnitVectors(AY, d).multiply(tq.setFromAxisAngle(AX, -3.2 / R));   // stand just behind it
   });
-  add('Reset everything', () => { store.set('bday-collected', '[]'); store.set('bday-pulled', '[]'); store.set('bday-offset', '0'); store.set('bday-hint-ack', '0'); store.set('bday-first-seen', '0'); store.set('bday-unlocked', '0'); location.reload(); });
+  add('Reset everything', () => { store.set('bday-collected', '[]'); store.set('bday-pulled', '[]'); store.set('bday-letterof', '{}'); store.set('bday-offset', '0'); store.set('bday-hint-ack', '0'); store.set('bday-first-seen', '0'); store.set('bday-unlocked', '0'); location.reload(); });
   document.body.appendChild(d);
   window.__phase = () => finale?.phase;   // for testing
   window.__roamers = () => roamers.map(r => r.mode);
   window.__quality = () => quality.level;
   window.__music = () => music?.track ?? null;
-  window.__three = () => ({ renderer, scene, composer, camera, roamers, particles, smoke, obstacles, pq, girl, world, WATER_SPOTS, finale, labels });
+  window.__three = () => ({ renderer, scene, composer, camera, roamers, particles, smoke, obstacles, pq, girl, world, WATER_SPOTS, finale, labels, freeChicken, receiveFrom, letterOf });
   window.__girl = () => ({ h: +girlH.toFixed(2), air: airborne, jump: +jumpHeight().toFixed(2) });
   window.__dist = () => roamers.map(r => +girl.root.position.distanceTo(r.group.position).toFixed(2));
 }
@@ -1092,7 +1109,7 @@ function freeChicken(i, instant = false) {
     if (!instant) burst(holder.localToWorld(V(0, 0.6, 0)), PALETTE[i % PALETTE.length], 40, 7, 0.8, 1.4);
     else ch.root.position.y = 0;
   }
-  pulled.add(i); if (instant) collected.add(i);
+  pulled.add(i); if (instant) takeLetter(i);
   saveProgress();
   if (instant) return;
   nearChicken = null; $('btnPull').classList.add('hidden');
@@ -1113,14 +1130,14 @@ function offerLetter(r) {
 function receiveFrom(r, silent = false) {
   r.ch.envelope.visible = false; r.ch.flower.visible = false;
   r.mode = 'roam';
-  collected.add(r.i); saveProgress();
+  const k = takeLetter(r.i); saveProgress();
   updateTimeUI();
   if (silent) return;
   burst(r.group.localToWorld(V(0, 1.6, 0)), 0xffffff, 8, 2.5, 0.8, 1.6, heartTex, false);
   burst(r.group.localToWorld(V(0, 0.7, 0.8)), PALETTE[r.i % PALETTE.length], 24, 5, 0.6, 1.2);
   collectSound();
   if (collected.size === TOTAL) pendingFinale.v = true;
-  setTimeout(() => openLetter(r.i), 400);
+  setTimeout(() => openLetter(k), 400);
 }
 
 function updateChickens(dt, t) {

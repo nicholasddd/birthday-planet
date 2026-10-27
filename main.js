@@ -561,7 +561,7 @@ function openLetter(i) {
 function fitLetter() {
   const paper = document.querySelector('#letter .paper'), body = $('letterBody'), head = $('letterHead');
   if (!$('letter').classList.contains('open')) return;
-  let fs = 21;
+  let fs = 20;
   const fits = () => paper.scrollHeight <= innerHeight - 36;
   do { body.style.fontSize = head.style.fontSize = `${fs}px`; fs -= 0.5; } while (!fits() && fs >= 12);
 }
@@ -1500,7 +1500,7 @@ function updateSmoke(dt) {
 const labels = [];
 function popLabel(text, at, height = 1.6, life = 2.6, color = '#ff5c98') {
   const c = document.createElement('canvas'), x = c.getContext('2d');
-  const font = `700 120px Caveat, 'Dancing Script', cursive`;
+  const font = `700 120px Caveat, cursive`;
   x.font = font; const w = Math.ceil(x.measureText(text).width) + 60;
   c.width = w; c.height = 170;
   x.font = font; x.textAlign = 'center'; x.textBaseline = 'middle'; x.lineJoin = 'round';

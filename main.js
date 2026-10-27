@@ -893,7 +893,7 @@ const CHIPS = [
   { key: 'O', emo: '🛟', act: () => floatPress(), when: () => !!floatHint },
   { key: 'G', emo: '💃', act: () => startDance(), when: () => dancing <= 0 && !gear.floating && isOnStage() },
   { key: 'F', emo: '🎶', act: () => whistle(), when: () => known() && (following.length > 0 || roamers.some(r => ['roam', 'watch', 'chase'].includes(r.mode) && r.group.position.distanceTo(girl.root.position) < 14)) },
-  { key: 'C', emo: '📷', act: () => takePhoto(), when: () => rainbow.visible || dancing > 0 || gear.floating || following.length > 0 || isDuskHour(hourOfDay()) || idleT > 12 },
+  { key: 'C', emo: '📷', act: () => takePhoto(), when: () => rainbow.visible || dancing > 0 || gear.floating || following.length > 0 || isDuskHour(hourOfDay()) || idleT > 25 },
 ];
 for (const c of CHIPS) {
   c.el = document.createElement('button'); c.el.className = 'chip glass hidden';
@@ -1714,8 +1714,10 @@ function updatePlayer(dt, t) {
   }
   idleT = len < 0.05 && canMove && !airborne && !pulling && !actionPose && !gear.floating && dancing <= 0 ? idleT + dt : 0;
   let pose = pulling ? 'pull' : actionPose ? actionPose.pose : gear.floating ? 'sit' : dancing > 0 ? 'dance' : airborne ? 'jump' : 'walk';
-  if (pose === 'walk' && idleT > 12) pose = isNightHour(hourOfDay()) ? 'stargaze' : 'sit';
-  else if (pose === 'walk' && idleT > 5 && idleT < 7.5) pose = 'stretch';
+  // idling: a stretch after ~10 s, sitting down after ~25 s, and only after a long while (at night) lying back to stargaze
+  if (pose === 'walk' && idleT > 60 && isNightHour(hourOfDay())) pose = 'stargaze';
+  else if (pose === 'walk' && idleT > 25) pose = 'sit';
+  else if (pose === 'walk' && idleT > 10 && idleT < 12.5) pose = 'stretch';
   animateCharacter(girl, t, walkAmt, pose);
   if (gear.floating) girl.rig.position.y = 0.05;   // sitting in the ring
   // holding things: that arm stays up (unless she needs both hands), and the holder cancels its tilt

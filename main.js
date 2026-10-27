@@ -346,6 +346,7 @@ function addRoamer(i, q, ch, popping) {
   return r;
 }
 function placeRoamer(r) {
+  if (r.mode !== 'float' && r.ch.shades.visible) { r.ch.shades.visible = false; r.ch.root.position.z = 0; }
   const d = AY.clone().applyQuaternion(r.q), st = world.standHeight(d);
   // chouchous heading out to (or floating in) the deep water bob on the surface instead of walking the lake bed
   const floating = r.home?.float && st.wet && (r.mode === 'float' || r.mode === 'toWater');
@@ -368,7 +369,7 @@ function shoreSpot(angle) {
 }
 const WATER_SPOTS = [
   ...[0, 1, 2, 3, 4].map(k => ({ dir: shoreSpot(k * 1.2566 + 0.3), float: false, taken: null })),
-  ...[0, 1, 2].map(k => ({ dir: lakeSpot(k * 2.1 + 1, world.lake.r * (0.18 + 0.14 * k)), float: true, taken: null })),
+  ...[0, 1, 2, 3].map(k => ({ dir: lakeSpot(k * 1.6 + 1, world.lake.r * (0.12 + 0.13 * k)), float: true, taken: null })),
 ];
 let waterT = 2;
 function sendToWater(r, spot, teleport = false) {
@@ -1414,10 +1415,16 @@ function updateChickens(dt, t) {
       placeRoamer(r);
       continue;
     }
-    if (r.mode === 'float') {                     // bob about in the deep water
-      r.q.multiply(tq.setFromAxisAngle(AY, dt * 0.18 * (r.phase > 3 ? 1 : -1))).normalize();
-      root.rotation.y = 0; root.rotation.x = Math.sin(t * 1.1 + r.phase) * 0.05; root.rotation.z = Math.sin(t * 1.4 + r.phase) * 0.08;
-      root.position.y = 0;
+    if (r.mode === 'float') {                     // lying on its back in the deep water, sunglasses on, drifting lazily
+      r.q.multiply(tq.setFromAxisAngle(AY, dt * 0.15 * (r.phase > 3 ? 1 : -1))).normalize();
+      const nq = r.q.clone().multiply(tq.setFromAxisAngle(AX, (0.25 * dt) / R));
+      if (world.isDeep(AY.clone().applyQuaternion(nq))) r.q.copy(nq);   // a slow drift that never washes ashore
+      else r.q.multiply(tq.setFromAxisAngle(AY, dt * 1.5));
+      const k = 1 - Math.exp(-dt * 2.5);   // eases over onto its back after wading in
+      root.rotation.set(lerp(root.rotation.x, -Math.PI / 2 + Math.sin(t * 1.1 + r.phase) * 0.06, k), 0, Math.sin(t * 0.9 + r.phase) * 0.1);
+      root.position.set(0, lerp(root.position.y, 0.22, k), lerp(root.position.z, 0.6, k));   // belly up, floating at the surface
+      r.ch.shades.visible = true;
+      for (const [j, f] of (r.ch.feet || []).entries()) f.rotation.x = Math.sin(t * 1.5 + r.phase + j * Math.PI) * 0.25;   // lazy little paddles
       if (Math.random() < dt * 0.4) burst(r.group.position.clone().add(r.group.position.clone().normalize().multiplyScalar(0.3)), 0xffffff, 3, 1.2, 0.35, 0.8);
       placeRoamer(r);
       continue;
@@ -1451,26 +1458,38 @@ const ROAMER_GAP = 1.3;
 const _sa = V(), _sb = V(), _sd = V(), _sq = new THREE.Quaternion();
 function separateRoamers() {
   const live = roamers.filter(r => r.mode !== 'flung' && r.mode !== 'pop');
-  const fixed = r => ['water', 'float', 'present'].includes(r.mode) || r.munch > 0 || r.feeding;
+  const fixed = r => ['water', 'present'].includes(r.mode) || r.munch > 0 || r.feeding;
+  // floaters lie stretched out on their backs, so they need more room
+  const gapOf = (a, b) => (a.mode === 'float' ? 0.95 : ROAMER_GAP / 2) + (b.mode === 'float' ? 0.95 : ROAMER_GAP / 2);
+  const nudge = (r, from, to, push) => {   // rotate it away from `from`, around the axis perpendicular to both
+    _sd.crossVectors(from, to);
+    if (_sd.lengthSq() < 1e-10) _sd.copy(randDir(Math.random)).cross(to);   // exactly on top of each other: pick a random direction
+    _sd.normalize();
+    _sq.setFromAxisAngle(_sd, push / R);
+    const nd = to.clone().applyQuaternion(_sq);
+    if (r.mode === 'float' ? !world.isDeep(nd) : blocked(to, nd, 0.4) || world.standHeight(nd).wet && !r.home) return;   // never into a tree, the stage, the lake — or (floating) ashore
+    r.q.premultiply(_sq).normalize();
+    placeRoamer(r);
+  };
   for (let i = 0; i < live.length; i++) for (let j = i + 1; j < live.length; j++) {
-    const a = live[i], b = live[j];
+    const a = live[i], b = live[j], gap = gapOf(a, b);
     _sa.copy(AY).applyQuaternion(a.q); _sb.copy(AY).applyQuaternion(b.q);
     const dist = _sa.angleTo(_sb) * R;
-    if (dist >= ROAMER_GAP) continue;
+    if (dist >= gap) continue;
     const fa = fixed(a), fb = fixed(b);
     if (fa && fb) continue;
-    const push = (ROAMER_GAP - dist) / (fa || fb ? 1 : 2);
-    for (const [r, from, to, still] of [[a, _sb, _sa, fa], [b, _sa, _sb, fb]]) {
-      if (still) continue;
-      // rotate it away from the other one, around the axis perpendicular to both
-      _sd.crossVectors(from, to);
-      if (_sd.lengthSq() < 1e-10) _sd.copy(randDir(Math.random)).cross(to);   // exactly on top of each other: pick a random direction
-      _sd.normalize();
-      _sq.setFromAxisAngle(_sd, push / R);
-      const nd = to.clone().applyQuaternion(_sq);
-      if (blocked(to, nd, 0.4) || world.standHeight(nd).wet && !r.home) continue;   // don't shove it into a tree, the stage or the lake
-      r.q.premultiply(_sq).normalize();
-      placeRoamer(r);
+    const push = (gap - dist) / (fa || fb ? 1 : 2);
+    if (!fa) nudge(a, _sb.clone(), _sa.clone(), push);
+    if (!fb) nudge(b, _sa.clone(), _sb.clone(), push);
+  }
+  // and the floaters drift out of the way of her pool float
+  if (gear.floating) {
+    const me = AY.clone().applyQuaternion(pq);
+    for (const r of live) {
+      if (r.mode !== 'float') continue;
+      _sa.copy(AY).applyQuaternion(r.q);
+      const dist = _sa.angleTo(me) * R;
+      if (dist < 2.3) nudge(r, me, _sa.clone(), 2.3 - dist);
     }
   }
 }
@@ -2290,6 +2309,7 @@ function step(dt, t) {
   sky.position.copy(camera.position);
   sky.material.uniforms.uUp.value.copy(camera.up);
   scene.fog.color.copy(sky.material.uniforms.uBottom.value);
+  if (DEBUG && window.__cam) { camera.position.copy(window.__cam.pos); camera.up.copy(window.__cam.pos).normalize(); camera.lookAt(window.__cam.look); }   // debug: hold the camera on a spot
   composer.render();
 }
 

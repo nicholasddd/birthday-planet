@@ -75,7 +75,22 @@ export function makeCabbageChicken(flowerColor) {
   }
   head.add(new THREE.Mesh(tinted(new THREE.SphereGeometry(0.05, 8, 6), 0xffe066), detailM));
 
+  // sunglasses, for lounging in the lagoon (hidden until then)
+  const shades = new THREE.Group(); shades.visible = false; root.add(shades);
+  const lensM = new THREE.MeshStandardMaterial({ color: 0x1d1a26, roughness: 0.15, metalness: 0.3 });
+  const frameM = new THREE.MeshStandardMaterial({ color: 0xff7fae, roughness: 0.4 });   // cute pink frames
+  for (const s of [-1, 1]) {
+    const lens = new THREE.Mesh(new THREE.SphereGeometry(0.15, 16, 10), lensM);
+    lens.position.set(0.2 * s, 0.77, 0.6); lens.scale.set(1, 0.78, 0.3); lens.rotation.y = 0.32 * s; shades.add(lens);
+    const rim = new THREE.Mesh(new THREE.TorusGeometry(0.15, 0.022, 8, 20), frameM);
+    rim.position.set(0.2 * s, 0.77, 0.625); rim.scale.set(1, 0.78, 1); rim.rotation.y = 0.32 * s; shades.add(rim);
+    const arm = new THREE.Mesh(new THREE.BoxGeometry(0.03, 0.03, 0.42), frameM);
+    arm.position.set(0.38 * s, 0.8, 0.38); arm.rotation.y = 0.55 * s; shades.add(arm);
+  }
+  const bridge = new THREE.Mesh(new THREE.BoxGeometry(0.12, 0.03, 0.03), frameM); bridge.position.set(0, 0.8, 0.66); shades.add(bridge);
+  bake(shades);
+
   // merge the static parts so each chouchou is a handful of draw calls
-  bake(root, [mouth, ...leaves, ...feet]); bake(envelope); bake(flower);
-  return { root, mouth, envelope, flower, leaves, feet };
+  bake(root, [mouth, ...leaves, ...feet, shades]); bake(envelope); bake(flower);
+  return { root, mouth, envelope, flower, leaves, feet, shades };
 }

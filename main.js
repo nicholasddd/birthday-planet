@@ -691,14 +691,14 @@ function updateButterflies(t) {
 let lastWish = Number(store.get('bday-wish-last') ?? -1), wishWindow = 0, wishTimer = null;
 // while a shooting star is crossing, a little "🌠 E" bubble pops up above her head so she doesn't miss it
 const wishBubble = (() => {
-  const c = document.createElement('canvas'); c.width = 220; c.height = 120;
+  const c = document.createElement('canvas'); c.width = 300; c.height = 120;
   const x = c.getContext('2d');
   x.fillStyle = 'rgba(255,255,255,0.92)'; x.strokeStyle = 'rgba(140,110,200,0.55)'; x.lineWidth = 4;
-  x.beginPath(); x.roundRect(8, 8, 204, 86, 43); x.fill(); x.stroke();
-  x.beginPath(); x.moveTo(98, 92); x.lineTo(110, 112); x.lineTo(122, 92); x.closePath(); x.fill();   // little speech-bubble tail
-  x.font = '54px serif'; x.textAlign = 'center'; x.textBaseline = 'middle'; x.fillText('🌠', 72, 54);
-  x.fillStyle = '#efe9f7'; x.beginPath(); x.roundRect(118, 26, 62, 56, 12); x.fill();
-  x.fillStyle = '#5b4a7a'; x.font = '700 38px Quicksand, sans-serif'; x.fillText('E', 149, 56);
+  x.beginPath(); x.roundRect(8, 8, 284, 86, 43); x.fill(); x.stroke();
+  x.beginPath(); x.moveTo(138, 92); x.lineTo(150, 112); x.lineTo(162, 92); x.closePath(); x.fill();   // little speech-bubble tail
+  x.font = '54px serif'; x.textAlign = 'center'; x.textBaseline = 'middle'; x.fillText('🌠', 70, 54);
+  x.fillStyle = '#efe9f7'; x.beginPath(); x.roundRect(112, 26, 160, 56, 12); x.fill();
+  x.fillStyle = '#5b4a7a'; x.font = '700 30px Quicksand, sans-serif'; x.fillText('SPACE', 192, 56);
   const tex = new THREE.CanvasTexture(c); tex.colorSpace = THREE.SRGBColorSpace;
   const sp = new THREE.Sprite(new THREE.SpriteMaterial({ map: tex, transparent: true, depthTest: false, depthWrite: false, opacity: 0 }));
   sp.renderOrder = 16; sp.visible = false; scene.add(sp);
@@ -888,7 +888,6 @@ function greeting() {
 // ---------------------------------------------------------------- emoji + key chips, shown only when that key is useful right now
 const sunny = () => { const h = hourOfDay(); return h > 9.5 && h < 16 && weather.rain < 0.1; };
 const CHIPS = [
-  { key: 'E', emo: '🌠', act: () => makeWish(), when: () => wishWindow > 0 },
   { key: 'I', emo: '🌟', act: () => toggleGear('wand'), when: () => starFx.phase !== 'off' || starsMat.opacity > 0.55 },
   { key: 'P', emo: '☂️', act: () => toggleGear('parasol'), when: () => gear.parasol || weather.rain > 0.2 || sunny() },
   { key: 'O', emo: '🛟', act: () => floatPress(), when: () => !!floatHint },
@@ -963,7 +962,7 @@ function updateLife(dt, t) {
   if (wishBubble.visible) {
     const e = easeOutBack(wishPop);
     wishBubble.position.copy(girl.root.localToWorld(V(0, 4.1 + Math.sin(t * 4) * 0.08, 0)));
-    wishBubble.scale.set(1.75 * e, 0.95 * e, 1);
+    wishBubble.scale.set(2.3 * e, 0.92 * e, 1);
     wishBubble.material.opacity = Math.min(1, wishPop * 1.5);
   }
 }
@@ -1514,6 +1513,7 @@ $('btnPull').addEventListener('pointerdown', e => { e.preventDefault(); pullPres
 function spaceAction() {
   if (nearHolder) offerLetter(nearHolder);
   else if (nearChicken) pullPress();
+  else if (wishWindow > 0) makeWish();   // a shooting star is crossing
   else if (nearFeed) feed(nearFeed);
   else if (nearBerry) pickBerry(nearBerry);
   else if (nearBottle) openBottle(nearBottle);

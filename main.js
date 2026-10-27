@@ -10,7 +10,7 @@ import { makeChibi, animateCharacter } from './characters.js';
 import { makeCabbageChicken } from './chickens.js';
 import { bake } from './perf.js';
 import { createMusic } from './music.js';
-import { makeStarWand, makeParasol, makeFloat } from './props.js';
+import { makeStarWand, makeParasol, makeFloat, makeCupcake } from './props.js';
 import { LETTERS_TH, SIGN_TH } from './letters-th.js';
 import { DEMO_CONFIG } from './demo.js';
 
@@ -228,6 +228,9 @@ girl.parts.shR.add(wandHolder); girl.parts.shL.add(parasolHolder);
 parasol.root.rotation.set(-0.17, 0, 0.12);   // leaning back over her head
 wandHolder.visible = parasolHolder.visible = false;
 floatRing.root.position.y = 0.32; floatRing.root.visible = false; girl.root.add(floatRing.root);
+const cupcake = makeCupcake();   // her sunny-day snack, held up in both hands when she sits for a while
+cupcake.root.position.set(0, 0.86, 0.5); cupcake.root.rotation.x = -0.25; cupcake.root.visible = false; girl.rig.add(cupcake.root);
+let nomT = 0;
 // the wand's light is always in the scene (just dark when put away), so switching it on never stalls to rebuild shaders
 // I: she raises the wand, its star lifts off and floats up above her head, lighting a soft pool around her like a
 // spotlight; I again calls it back down. The light is always in the scene (just dark when off) so switching never stalls.
@@ -1716,9 +1719,19 @@ function updatePlayer(dt, t) {
   let pose = pulling ? 'pull' : actionPose ? actionPose.pose : gear.floating ? 'sit' : dancing > 0 ? 'dance' : airborne ? 'jump' : 'walk';
   // idling: a stretch after ~10 s, sitting down after ~25 s, and only after a long while (at night) lying back to stargaze
   if (pose === 'walk' && idleT > 60 && isNightHour(hourOfDay())) pose = 'stargaze';
+  else if (pose === 'walk' && idleT > 38 && !isNightHour(hourOfDay()) && weather.rain < 0.2 && !gear.parasol) pose = 'eat';   // a sunny-day cupcake
   else if (pose === 'walk' && idleT > 25) pose = 'sit';
   else if (pose === 'walk' && idleT > 10 && idleT < 12.5) pose = 'stretch';
   animateCharacter(girl, t, walkAmt, pose);
+  cupcake.root.visible = pose === 'eat';
+  if (pose === 'eat') {   // munching: the cupcake bobs to her mouth, with the odd crumb and a soft "nom"
+    cupcake.root.position.y = 0.86 + Math.abs(Math.sin(t * 6)) * 0.04;
+    if ((nomT -= dt) <= 0) {
+      nomT = 1.6 + Math.random() * 1.4;
+      tone(520 + Math.random() * 80, 0, 0.08, 0.03, 'triangle'); tone(420, 0.1, 0.08, 0.025, 'triangle');
+      burst(cupcake.root.getWorldPosition(V()), 0x9a6a4a, 3, 1.2, 0.12, 0.6, glowTex, false);
+    }
+  }
   if (gear.floating) girl.rig.position.y = 0.05;   // sitting in the ring
   // holding things: that arm stays up (unless she needs both hands), and the holder cancels its tilt
   const holding = pose === 'walk' || pose === 'jump' || pose === 'sit';

@@ -161,6 +161,15 @@ export function animateCharacter(ch, t, walk, pose = 'walk') {
     p.head.rotation.z = Math.sin(t * 1.3) * 0.08;
     return;
   }
+  if (pose === 'eat') {             // sitting, legs out, both hands holding a cupcake up to her mouth, chewing away
+    for (const [k, s] of [['shL', 1], ['shR', -1]]) { p[k].rotation.x = lerp(p[k].rotation.x, -1.15, 0.15); p[k].rotation.z = lerp(p[k].rotation.z, -0.42 * s, 0.15); }
+    p.hipL.rotation.x = -1.35 + Math.sin(t * 2) * 0.12; p.hipR.rotation.x = -1.35 - Math.sin(t * 2) * 0.12;
+    ch.rig.rotation.x = lerp(ch.rig.rotation.x, -0.06, 0.2); ch.rig.rotation.z = Math.sin(t * 1.2) * 0.03;
+    ch.rig.position.y = -0.22;
+    p.head.rotation.x = 0.12 + Math.abs(Math.sin(t * 6)) * 0.07;   // nom nom
+    p.head.rotation.z = Math.sin(t * 1.5) * 0.05;
+    return;
+  }
   if (pose === 'dance') {           // a happy little dance: arms waving in turn, bouncing, hips swaying
     const b = Math.sin(t * 9);
     p.shL.rotation.set(-0.3, 0, 2.2 + Math.sin(t * 4.5) * 0.6); p.shR.rotation.set(-0.3, 0, -2.2 + Math.sin(t * 4.5 + Math.PI) * 0.6);

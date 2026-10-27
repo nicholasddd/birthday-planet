@@ -103,3 +103,30 @@ export function makeFloat() {
   bake(root);
   return { root };
 }
+
+// ---------------------------------------------------------------- a little cupcake, for a sunny-day snack
+export function makeCupcake() {
+  const root = new THREE.Group();
+  // pleated paper case: alternating stripes, a little wider at the top
+  const caseG = new THREE.CylinderGeometry(0.2, 0.15, 0.2, 20, 1, true);
+  const p = caseG.attributes.position, cols = new Float32Array(p.count * 3), c = new THREE.Color();
+  for (let i = 0; i < p.count; i++) { c.set(Math.sin(Math.atan2(p.getZ(i), p.getX(i)) * 10) > 0 ? 0xf7f1e6 : 0xe9dcc8); cols.set([c.r, c.g, c.b], i * 3); }
+  caseG.setAttribute('color', new THREE.BufferAttribute(cols, 3));
+  const wrap = new THREE.Mesh(caseG, new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.9, side: THREE.DoubleSide }));
+  root.add(wrap);
+  const base = new THREE.Mesh(new THREE.CircleGeometry(0.15, 20).rotateX(Math.PI / 2), std(0xe9dcc8)); base.position.y = -0.1; root.add(base);
+  // chocolate sponge top + a swirl of white frosting
+  const cake = new THREE.Mesh(new THREE.SphereGeometry(0.21, 20, 12, 0, Math.PI * 2, 0, Math.PI / 2), std(0x7a4a2e, { roughness: 0.85 }));
+  cake.position.y = 0.09; cake.scale.y = 0.6; root.add(cake);
+  const frost = std(0xfffaf2, { roughness: 0.5 });
+  [[0.17, 0.16], [0.12, 0.24], [0.07, 0.31]].forEach(([r, y]) => { const f = new THREE.Mesh(new THREE.SphereGeometry(r, 16, 10), frost); f.position.y = y; f.scale.y = 0.62; root.add(f); });
+  // rainbow sprinkles
+  const sprM = ['#ff7fae', '#7cc4ff', '#ffd54a', '#8fe08a', '#c9a6ff'].map(h => std(h, { roughness: 0.6 }));
+  for (let k = 0; k < 12; k++) {
+    const a = k * 2.4, r = 0.05 + (k % 3) * 0.04, sp = new THREE.Mesh(new THREE.CapsuleGeometry(0.008, 0.035, 2, 4), sprM[k % sprM.length]);
+    sp.position.set(Math.cos(a) * r, 0.31 - r * 0.6, Math.sin(a) * r); sp.rotation.set(a, a * 1.7, 1.2); root.add(sp);
+  }
+  root.traverse(m => { if (m.isMesh) m.castShadow = true; });
+  bake(root);
+  return { root };
+}

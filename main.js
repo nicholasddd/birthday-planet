@@ -66,10 +66,25 @@ const SKY = {
 };
 const sky = new THREE.Mesh(new THREE.SphereGeometry(420, 32, 16), new THREE.ShaderMaterial({
   side: THREE.BackSide, depthWrite: false, fog: false,
-  uniforms: { uTop: { value: SKY.dayTop.clone() }, uBottom: { value: SKY.dayBottom.clone() }, uUp: { value: new THREE.Vector3(0, 1, 0) } },
+  uniforms: { uTop: { value: SKY.dayTop.clone() }, uBottom: { value: SKY.dayBottom.clone() }, uUp: { value: new THREE.Vector3(0, 1, 0) },
+    uNebA: { value: new THREE.Color(0x6a3fa0) }, uNebB: { value: new THREE.Color(0xd06aa8) }, uNeb: { value: 0 }, uTime: { value: 0 } },
   vertexShader: `varying vec3 vDir; void main() { vDir = (modelMatrix * vec4(position, 1.0)).xyz - cameraPosition; gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0); }`,
-  fragmentShader: `uniform vec3 uTop; uniform vec3 uBottom; uniform vec3 uUp; varying vec3 vDir;
-    void main() { float h = dot(normalize(vDir), uUp); gl_FragColor = vec4(mix(uBottom, uTop, smoothstep(-0.2, 0.55, h)), 1.0); }`,
+  // plus, at night, soft drifting nebula clouds and a faint Milky Way band (uNeb = how strong)
+  fragmentShader: `uniform vec3 uTop; uniform vec3 uBottom; uniform vec3 uUp; uniform vec3 uNebA; uniform vec3 uNebB; uniform float uNeb; uniform float uTime; varying vec3 vDir;
+    float lobe(vec3 d, vec3 c, float k) { return exp(-k * (1.0 - dot(d, normalize(c)))); }
+    void main() {
+      vec3 d = normalize(vDir);
+      vec3 col = mix(uBottom, uTop, smoothstep(-0.2, 0.55, dot(d, uUp)));
+      if (uNeb > 0.001) {
+        float t = uTime * 0.015;
+        float n1 = lobe(d, vec3(cos(t), 0.35, sin(t)), 2.2), n2 = lobe(d, vec3(-sin(t * 0.7), -0.25, cos(t * 0.7)), 1.8), n3 = lobe(d, vec3(0.35, 0.9, -0.4), 3.2);
+        vec3 nb = normalize(vec3(0.3, 0.55, 0.78));
+        float wob = 0.55 + 0.45 * sin(dot(d, vec3(7.0, 3.0, 5.0)) + uTime * 0.04) * sin(dot(d, vec3(-4.0, 9.0, 2.0)) - uTime * 0.03);
+        float band = exp(-pow(dot(d, nb) * 4.5, 2.0)) * wob;
+        col += uNeb * (uNebA * (n1 * 0.8 + band * 0.55) + uNebB * (n2 * 0.75 + n3 * 0.45));
+      }
+      gl_FragColor = vec4(col, 1.0);
+    }`,
 }));
 sky.renderOrder = -1;
 scene.add(sky);
@@ -1998,13 +2013,27 @@ function lookAt(h) {
 const sunSide = V(), camDirV = V();
 let cloudMat = null;   // the elephant clouds glow softly by day and dim down at night
 cloudPivot.traverse(o => { if (o.isMesh && o.material.emissive && !cloudMat) cloudMat = o.material; });
+// while she waits for the countdown, the night sky drifts through different moods of space
+const SPACE = [
+  { top: 0x0a1033, bottom: 0x2a2f72, a: 0x6a3fa0, b: 0xd06aa8, neb: 0.6 },   // midnight indigo, violet + pink
+  { top: 0x03121e, bottom: 0x0b4150, a: 0x2fd6a0, b: 0x3a6bd6, neb: 0.7 },   // aurora: teal and green
+  { top: 0x190d3a, bottom: 0x7a3668, a: 0xff9a8a, b: 0xa07ad6, neb: 0.62 },   // rose dusk: peach and lilac
+  { top: 0x020820, bottom: 0x123a7a, a: 0x4ac0e0, b: 0x6a4ad0, neb: 0.65 },   // deep ocean: cyan and purple
+  { top: 0x120626, bottom: 0x3f1a5e, a: 0xe05ab0, b: 0xffc070, neb: 0.68 },    // galaxy plum: magenta and gold
+].map(P => ({ top: new THREE.Color(P.top), bottom: new THREE.Color(P.bottom), a: new THREE.Color(P.a), b: new THREE.Color(P.b), neb: P.neb }));
 let skySnap = true;   // jump straight to the right look on the first frame
 function updateSky(dt) {
   const nk = skySnap ? 1 : 1 - Math.exp(-dt * 0.6), u = sky.material.uniforms;
   const h = hourOfDay(), dayT = clamp((h - 6) / 12, 0, 1);
   const L = waitingMode ? lookAt(0) : lookAt(h);
+  u.uTime.value += dt;
+  // waiting page: a new space palette every ~22 s (the slow lerp makes the crossfade); at night in play, just a hint of nebula
+  const P = waitingMode ? SPACE[Math.floor(u.uTime.value / 22) % SPACE.length] : null;
+  const nebK = 1 - Math.exp(-dt * 0.35);
+  u.uNeb.value = lerp(u.uNeb.value, P ? P.neb : state === 'finale' ? 0.18 : L.stars * 0.12, skySnap ? 1 : nebK);
+  if (P) { u.uNebA.value.lerp(P.a, skySnap ? 1 : nebK); u.uNebB.value.lerp(P.b, skySnap ? 1 : nebK); }
   if (state !== 'finale') {
-    u.uTop.value.lerp(L.top, nk); u.uBottom.value.lerp(L.bottom, nk);
+    u.uTop.value.lerp(P ? P.top : L.top, P ? (skySnap ? 1 : nebK) : nk); u.uBottom.value.lerp(P ? P.bottom : L.bottom, P ? (skySnap ? 1 : nebK) : nk);
     starsMat.opacity = lerp(starsMat.opacity, L.stars, nk);
   }
   const T = state === 'finale' ? LOOKS.finale : L;
@@ -2034,7 +2063,7 @@ function updateShootingStar(dt) {
     shooting.position.addScaledVector(shoot.vel, dt);
     m.opacity = Math.sin(Math.min(1, k) * Math.PI) * starsMat.opacity;
     shooting.scale.set(lerp(8, 34, Math.min(1, k * 2.5)), 0.9, 1);
-    if (k >= 1) { shooting.visible = false; shoot.wait = 5 + Math.random() * 12; }
+    if (k >= 1) { shooting.visible = false; shoot.wait = waitingMode ? 2 + Math.random() * 5 : 5 + Math.random() * 12; }   // more of them while she waits
     return;
   }
   if (starsMat.opacity < 0.5 || (shoot.wait -= dt) > 0) return;

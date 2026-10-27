@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover" />
 <title>Birthday Planet</title>
 <link rel="preconnect" href="https://fonts.googleapis.com" />
-<link href="https://fonts.googleapis.com/css2?family=Quicksand:wght@400;500;600;700&family=Cormorant+Garamond:ital,wght@1,500;1,600&family=Caveat:wght@500;700&family=Gaegu:wght@400;700&display=swap" rel="stylesheet" />
+<link href="https://fonts.googleapis.com/css2?family=Quicksand:wght@400;500;600;700&family=Cormorant+Garamond:ital,wght@1,500;1,600&family=Caveat:wght@500;700&family=Gaegu:wght@400;700&family=Mali:wght@400;500&family=Charm:wght@700&display=swap" rel="stylesheet" />
 <style>
   :root {
     --ink: #5a4a5e; --ink-soft: #8a7a8e; --rose: #d98aa8; --rose-deep: #c96f93; --leaf: #8fbf63;
@@ -193,6 +193,12 @@
   .letter-flower { position: absolute; right: clamp(-70px, -9vw, -30px); bottom: -6%; height: 62%; transform: rotate(14deg); transform-origin: bottom center; filter: drop-shadow(0 8px 10px rgba(60, 35, 10, .3)); pointer-events: none; }
   #btnCloseLetter { position: absolute; top: 22px; right: 46px; z-index: 2; width: 26px; height: 26px; border-radius: 50%; display: grid; place-items: center; color: #8c5a32; font-size: 17px; line-height: 1; opacity: .7; transition: opacity .2s, background .2s; }
   #btnCloseLetter:hover { opacity: 1; background: rgba(140, 90, 50, .1); }
+  #btnLang { position: absolute; top: 24px; left: 46px; z-index: 2; padding: 3px 10px; border-radius: 999px; border: 1px solid rgba(140, 90, 50, .4); color: #8c5a32; font: 600 11px 'Quicksand', 'Mali', sans-serif; letter-spacing: .04em; background: rgba(255, 248, 230, .5); opacity: .8; transition: opacity .2s, background .2s; }
+  #btnLang:hover { opacity: 1; background: rgba(140, 90, 50, .1); }
+  /* Thai: a rounded Thai handwriting for the letter, a calligraphic face for the title */
+  #letter.th #letterBody { font-family: 'Mali', 'Gaegu', cursive; line-height: 1.55; }
+  #letter.th #letterTitle { font-family: 'Charm', 'Cormorant Garamond', serif; font-style: normal; }
+  #letter.th #letterSub { font-family: 'Mali', serif; font-style: normal; font-size: .8em; }
 
   /* Catalogue */
   #catalogue .card { width: min(560px, 100%); }
@@ -287,6 +293,7 @@
   <div class="letter-wrap">
     <div class="paper">
       <button id="btnCloseLetter" aria-label="Close letter">✕</button>
+      <button id="btnLang" aria-label="Read in Thai">ไทย</button>
       <i class="corner tl"></i><i class="corner tr"></i><i class="corner bl"></i><i class="corner br"></i>
       <div class="crest">
         <svg viewBox="0 0 70 16" fill="none" stroke="currentColor" stroke-width="1.1" stroke-linecap="round"><path d="M68 8 C55 8 50 2 42 3 C35 4 36 12 42 12 C47 12 47 6 43 6"/><path d="M42 8 C30 8 20 14 2 9" opacity=".7"/><circle cx="6" cy="9" r="1.4" fill="currentColor"/></svg>
@@ -300,7 +307,7 @@
         <div id="letterGreet"></div>
         <div id="letterText"></div>
         <div class="sign-row">
-          <div class="sign"><span>With all my love,</span><span id="letterFrom"></span></div>
+          <div class="sign"><span id="letterWith">With all my love,</span><span id="letterFrom"></span></div>
           <div class="seal">
             <svg viewBox="0 0 94 94" fill="none" stroke="#c9a46a" stroke-width="2.2" stroke-linecap="round"><path d="M20 60 C5 75 10 92 26 84 C38 78 30 62 44 58"/><path d="M60 64 C70 82 88 86 84 70 C80 58 64 66 56 56"/></svg>
             <div class="wax"><span id="sealMono">♥</span></div>

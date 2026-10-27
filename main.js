@@ -11,6 +11,7 @@ import { makeCabbageChicken } from './chickens.js';
 import { bake } from './perf.js';
 import { createMusic } from './music.js';
 import { makeStarWand, makeParasol, makeFloat } from './props.js';
+import { LETTERS_TH, SIGN_TH } from './letters-th.js';
 
 // ============================================================ utils
 const TOTAL = 24;
@@ -673,8 +674,16 @@ function flowerSVG(hex) {
     <path d="M63 170 C84 156 98 162 104 174 C90 180 76 178 63 170Z" fill="#6aa64f"/>
     ${petals}<circle cx="62" cy="78" r="12" fill="#ffd54a"/><circle cx="58" cy="74" r="4" fill="#ffe89a"/>`;
 }
-function openLetter(i) {
-  const L = CONFIG.letters[i] || {};
+// letters can be read in English or Thai (her choice is remembered)
+let letterLang = store.get('bday-lang') === 'th' ? 'th' : 'en', openLetterIdx = 0;
+$('btnLang').onclick = () => { letterLang = letterLang === 'th' ? 'en' : 'th'; store.set('bday-lang', letterLang); openLetter(openLetterIdx, true); document.fonts?.load('20px Mali').then(fitLetter); };
+function openLetter(i, relang = false) {
+  openLetterIdx = i;
+  const EN = CONFIG.letters[i] || {}, th = letterLang === 'th' && LETTERS_TH[i];
+  const L = th ? { ...EN, ...LETTERS_TH[i] } : EN;
+  $('letter').classList.toggle('th', !!th);
+  $('btnLang').textContent = th ? 'EN' : 'ไทย';
+  $('letterWith').textContent = th ? SIGN_TH : 'With all my love,';
   $('letterHour').textContent = L.time ? `${L.time} · ${L.n}` : `chouchou ${i + 1} of ${TOTAL}`;
   $('letterTitle').textContent = L.title || ''; $('letterSub').textContent = L.sub || '';
   $('mono').textContent = $('sealMono').textContent = CONFIG.monogram || '♥';
@@ -685,7 +694,7 @@ function openLetter(i) {
   $('letterFlower').innerHTML = flowerSVG('#' + new THREE.Color(PALETTE[(Number.isNaN(c) ? i : c) % PALETTE.length]).getHexString());
   const img = $('letterImg'), body = $('letterBody');
   img.classList.add('hidden'); body.classList.add('hidden');
-  if (L.image) {
+  if (L.image && !th) {
     img.onload = () => img.classList.remove('hidden');
     img.onerror = () => body.classList.remove('hidden');
     img.src = L.image;

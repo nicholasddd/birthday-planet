@@ -540,11 +540,12 @@ function flowerSVG(hex) {
 }
 function openLetter(i) {
   const L = CONFIG.letters[i] || {};
-  $('letterHour').textContent = `chouchou ${i + 1} of ${TOTAL}`;
+  $('letterHour').textContent = L.time ? `${L.time} · ${L.n}` : `chouchou ${i + 1} of ${TOTAL}`;
+  $('letterTitle').textContent = L.title || ''; $('letterSub').textContent = L.sub || '';
   $('mono').textContent = $('sealMono').textContent = CONFIG.monogram || '♥';
-  $('letterGreet').textContent = `My dearest ${CONFIG.herName.replace(/^my\s+/i, '')},`;
+  $('letterGreet').textContent = L.greet || `My dearest ${CONFIG.herName.replace(/^my\s+/i, '')},`;
   $('letterFrom').textContent = CONFIG.fromName || '';
-  $('letterText').textContent = L.text || '';
+  $('letterText').replaceChildren(...(L.text || '').split('\n').map(line => { const p = document.createElement('p'); p.textContent = line; return p; }));
   $('letterFlower').innerHTML = flowerSVG('#' + new THREE.Color(PALETTE[i % PALETTE.length]).getHexString());
   const img = $('letterImg'), body = $('letterBody');
   img.classList.add('hidden'); body.classList.add('hidden');
@@ -554,7 +555,18 @@ function openLetter(i) {
     img.src = L.image;
   } else body.classList.remove('hidden');
   openOverlay('letter');
+  fitLetter();
 }
+// the letter never scrolls: shrink the writing until the whole page fits the window
+function fitLetter() {
+  const paper = document.querySelector('#letter .paper'), body = $('letterBody'), head = $('letterHead');
+  if (!$('letter').classList.contains('open')) return;
+  let fs = 21;
+  const fits = () => paper.scrollHeight <= innerHeight - 36;
+  do { body.style.fontSize = head.style.fontSize = `${fs}px`; fs -= 0.5; } while (!fits() && fs >= 12);
+}
+addEventListener('resize', fitLetter);
+document.fonts?.ready.then(fitLetter);
 
 $('btnStart').onclick = () => {
   getAudio(); playMusic('planet');

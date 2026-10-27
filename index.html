@@ -158,7 +158,7 @@
 
   /* Letter: aged parchment over a soft, blurred close-up of the planet */
   #letter { background: radial-gradient(ellipse at center, rgba(90, 60, 30, .12), rgba(60, 40, 25, .38)); backdrop-filter: blur(5px) saturate(.9); -webkit-backdrop-filter: blur(5px) saturate(.9); display: flex; flex-direction: column; justify-content: center; align-items: center; gap: 14px; }
-  .letter-wrap { position: relative; width: min(560px, 88vw, 78dvh); transform: rotate(-1.6deg) translateY(10px); transition: transform .5s cubic-bezier(.2,1.2,.4,1); }
+  .letter-wrap { position: relative; width: min(820px, 86vw); transform: rotate(-1.6deg) translateY(10px); transition: transform .5s cubic-bezier(.2,1.2,.4,1); }
   #letter.open .letter-wrap { transform: rotate(-1.6deg); }
   .paper { position: relative; padding: clamp(26px, 6vw, 46px) clamp(26px, 6vw, 52px) clamp(30px, 6vw, 48px); color: #6b3d22;
     background:
@@ -175,10 +175,12 @@
   .crest { display: flex; align-items: center; justify-content: center; gap: 8px; color: #8c5a32; margin-bottom: 2px; }
   .crest svg { width: 70px; height: 16px; } .crest svg.r { transform: scaleX(-1); }
   #mono { font-family: 'Cormorant Garamond', serif; font-style: italic; font-size: 26px; line-height: 1; }
-  #letterHour { text-align: center; color: #a37a55; font-size: 9.5px; margin-bottom: 14px; }
-  #letterBody { font-family: 'Dancing Script', cursive; font-size: clamp(14px, min(4.4vw, 2.9dvh), 23px); line-height: 1.42; }
+  #letterHour { text-align: center; color: #a37a55; font-size: 9.5px; margin-bottom: 6px; }
+  #letterTitle { font-family: 'Cormorant Garamond', serif; font-style: italic; font-weight: 600; font-size: 1.5em; line-height: 1.1; text-align: center; color: #7a4526; }
+  #letterSub { font-family: 'Cormorant Garamond', serif; font-style: italic; font-size: .95em; text-align: center; color: #a37a55; margin: 2px 0 12px; }
+  #letterBody { font-family: 'Dancing Script', cursive; font-size: 21px; line-height: 1.36; }   /* shrunk to fit by fitLetter() */
   #letterGreet { margin-bottom: 8px; }
-  #letterText { white-space: pre-wrap; text-indent: 1.6em; }
+  #letterText p { margin: 0 0 .12em; text-indent: 1.3em; font: inherit; color: inherit; line-height: inherit; }
   .sign-row { display: flex; align-items: center; justify-content: flex-end; gap: clamp(10px, 3vw, 22px); margin-top: 14px; }
   .sign { display: flex; flex-direction: column; align-items: flex-start; }
   #letterImg { display: block; width: 100%; max-height: calc(100dvh - 190px); object-fit: contain; border-radius: 4px; mix-blend-mode: multiply; }
@@ -290,6 +292,7 @@
         <svg class="r" viewBox="0 0 70 16" fill="none" stroke="currentColor" stroke-width="1.1" stroke-linecap="round"><path d="M68 8 C55 8 50 2 42 3 C35 4 36 12 42 12 C47 12 47 6 43 6"/><path d="M42 8 C30 8 20 14 2 9" opacity=".7"/><circle cx="6" cy="9" r="1.4" fill="currentColor"/></svg>
       </div>
       <div class="eyebrow" id="letterHour"></div>
+      <div id="letterHead"><div id="letterTitle"></div><div id="letterSub"></div></div>
       <img id="letterImg" alt="Handwritten letter" class="hidden" />
       <div id="letterBody" class="hidden">
         <div id="letterGreet"></div>

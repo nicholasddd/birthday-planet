@@ -370,12 +370,12 @@ function shoreSpot(angle) {
 }
 const WATER_SPOTS = [
   ...[0, 1, 2, 3, 4].map(k => ({ dir: shoreSpot(k * 1.2566 + 0.3), float: false, taken: null })),
-  ...[0, 1, 2, 3].map(k => ({ dir: lakeSpot(k * 1.6 + 1, world.lake.r * (0.12 + 0.13 * k)), float: true, taken: null })),
+  ...[0, 1].map(k => ({ dir: lakeSpot(k * 3.1 + 1, world.lake.r * (0.2 + 0.15 * k)), float: true, taken: null })),   // at most 2 floating at once
 ];
 let waterT = 2;
 function sendToWater(r, spot, teleport = false) {
   spot.taken = r; r.home = spot; r.t = 0;
-  r.stay = (spot.float ? 45 : 35) + Math.random() * 60;   // seconds it'll spend in (or by) the water before wandering off
+  r.stay = spot.float ? 180 + Math.random() * 240 : 120 + Math.random() * 180;   // a good long while (3–7 min floating, 2–5 by the shore), but never forever
   if (teleport) { r.q.setFromUnitVectors(AY, spot.dir).multiply(tq.setFromAxisAngle(AY, Math.random() * 6)); r.mode = spot.float ? 'float' : 'water'; placeRoamer(r); }
   else r.mode = 'toWater';
 }

@@ -208,6 +208,10 @@ scene.add(girl.root);
 const boy = makeChibi(CONFIG.boy, false);
 boy.root.visible = false;
 scene.add(boy.root);
+// afterwards (free roam) he's out of the strawberry: his everyday self, black hair, walking with her
+const boyPal = makeChibi({ ...CONFIG.boy, hair: 0x231915, hairSheen: 0x6e5a4e }, false);
+boyPal.root.visible = false;
+scene.add(boyPal.root);
 
 // arrow above her head pointing at the nearest stuck chicken
 const arrowPivot = new THREE.Group(); arrowPivot.position.y = 3.1; girl.root.add(arrowPivot);
@@ -966,29 +970,34 @@ $('btnBackToPlanet').onclick = returnToPlanet;
 
 // ---------------------------------------------------------------- afterwards: free roam, with the strawberry boy tagging along
 let postGame = false;
-const berryPal = { q: new THREE.Quaternion(), group: null, moving: false };   // (group = the strawberry boy, linked when post-game starts)
-const BERRY_SCALE = 0.27, BERRY_LIFT = 1.45;   // about her height, standing on his little legs
+const berryPal = { q: new THREE.Quaternion(), group: null, moving: false, walk: 0 };   // (group = him, linked when post-game starts)
 function enterPostGame() {
-  postGame = true; berryPal.group = bean;
+  postGame = true; berryPal.group = boyPal.root;
   if (!statue.giant) { statue.state = 'stone'; wakeStatue(true); }
   statue.state = 'post'; statue.t = 0;
   cake.visible = false;
-  scene.add(bean); bean.visible = true; bean.scale.setScalar(BERRY_SCALE); bean.position.set(0, 0, 0); bean.rotation.set(0, 0, 0);
-  sb.pop = [1, 1, 1]; sb.bite.scale.setScalar(1); sb.blush.opacity = 0.55;
-  berryPal.q.copy(pq).multiply(new THREE.Quaternion().setFromAxisAngle(AX, -2.4 / R));   // just behind her
+  // the empty strawberry (bite mark and all) drifts in space among the elephant clouds, circling the planet with them
+  cloudPivot.add(bean); bean.visible = true; bean.scale.setScalar(0.42); bean.rotation.set(0.4, 0, 0.3);
+  bean.position.set(0.55, 0.7, -0.45).normalize().multiplyScalar(R + 13);
+  sb.pop = [0, 0, 0]; sb.bite.scale.setScalar(1); sb.blush.opacity = 0; poseBerryBoy(0, 0);
+  // and he walks with her, just behind
+  boyPal.root.visible = true;
+  berryPal.q.copy(pq).multiply(new THREE.Quaternion().setFromAxisAngle(AX, -2.4 / R));
   updateTimeUI();
 }
 function updateBerryPal(dt, t) {
   if (!postGame || state !== 'play') return;
   const me = AY.clone().applyQuaternion(pq), him = AY.clone().applyQuaternion(berryPal.q), d = me.angleTo(him) * R;
   berryPal.moving = d > 2.4;
-  if (berryPal.moving) walkToward(berryPal, me, clamp(d * 1.8, 2, 6.5), dt, 2.2);   // waddles after her (waits at the water's edge)
+  if (berryPal.moving) walkToward(berryPal, me, clamp(d * 1.8, 2, 7), dt, 2.2);   // walks after her (waits at the water's edge)
   else turnToward(berryPal, girl.root.position, dt * 0.5);
   const at = AY.clone().applyQuaternion(berryPal.q);
   const onStageTop = at.angleTo(world.stage.dir) * R < world.stage.r;   // (only if he started up there with her)
-  bean.position.copy(at).multiplyScalar(R + (onStageTop ? world.stage.top : world.standHeight(at).h) + BERRY_LIFT);
-  bean.quaternion.copy(berryPal.q);
-  poseBerryBoy(t, berryPal.moving ? 0.55 : 0.12);
+  boyPal.root.position.copy(at).multiplyScalar(R + (onStageTop ? world.stage.top : world.standHeight(at).h));
+  boyPal.root.quaternion.copy(berryPal.q);
+  berryPal.walk = lerp(berryPal.walk, berryPal.moving ? 1 : 0, 0.15);
+  animateCharacter(boyPal, t, berryPal.walk, 'walk');
+  bean.rotation.x += dt * 0.12; bean.rotation.z += dt * 0.07;   // the strawberry tumbling slowly out there
 }
 
 function updateLife(dt, t) {

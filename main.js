@@ -561,7 +561,7 @@ function openLetter(i) {
 function fitLetter() {
   const paper = document.querySelector('#letter .paper'), body = $('letterBody'), head = $('letterHead');
   if (!$('letter').classList.contains('open')) return;
-  let fs = 20;
+  let fs = 24;
   const fits = () => paper.scrollHeight <= innerHeight - 36;
   do { body.style.fontSize = head.style.fontSize = `${fs}px`; fs -= 0.5; } while (!fits() && fs >= 12);
 }

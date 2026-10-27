@@ -529,7 +529,41 @@ function shelterFor(r) {   // the nearest leafy tree to huddle under
   const ax = V().crossVectors(best.dir, me); if (ax.lengthSq() < 1e-9) return null;
   return best.dir.clone().applyAxisAngle(ax.normalize(), (best.rad + 0.55) / R);
 }
+// Rain: everyone out in the open picks a leafy tree to huddle under, never alone: a tree gets at least two.
+const SHELTER_TREES = obstacles.filter(o => !o.solid && o.top >= 2.5 && o.rad <= 2 && o.rad > 0.5);
+const canShelter = r => ['roam', 'toShelter', 'shelter', 'watch', 'chase'].includes(r.mode);
+let shelterPlanT = 0;
+function planShelters() {
+  const group = roamers.filter(canShelter);
+  const byTree = new Map();
+  const near = (r, skip) => {
+    const me = AY.clone().applyQuaternion(r.q); let best = null, bd = Infinity;
+    for (const o of SHELTER_TREES) { if (skip && !skip(o)) continue; const d = o.dir.angleTo(me); if (d < bd) { bd = d; best = o; } }
+    return best;
+  };
+  for (const r of group) { const o = near(r); if (!o) continue; r.tree = o; if (!byTree.has(o)) byTree.set(o, []); byTree.get(o).push(r); }
+  // nobody shelters alone: a lone chouchou joins the nearest tree that already has someone
+  for (const [o, list] of [...byTree]) {
+    if (list.length !== 1 || byTree.size < 2) continue;
+    const r = list[0], to = near(r, x => x !== o && (byTree.get(x)?.length || 0) >= 1);
+    if (!to) continue;
+    byTree.delete(o); r.tree = to; byTree.get(to).push(r);
+  }
+  // side by side round the trunk, starting from where the first one arrives
+  for (const [o, list] of byTree) {
+    const e1 = V().crossVectors(o.dir, Math.abs(o.dir.y) < 0.9 ? AY : AX).normalize(), e2 = V().crossVectors(o.dir, e1);
+    const ang = r => { const p = AY.clone().applyQuaternion(r.q); return Math.atan2(p.dot(e2), p.dot(e1)); };
+    list.sort((a, b) => ang(a) - ang(b));
+    const rad = o.rad + 0.65, step = 1.5 / rad, base = ang(list[0]);
+    list.forEach((r, k) => {
+      const th = base + k * step;   // shoulder to shoulder
+      const a = rad / R, dir = e1.clone().multiplyScalar(Math.cos(th)).addScaledVector(e2, Math.sin(th));
+      r.shelter = o.dir.clone().multiplyScalar(Math.cos(a)).addScaledVector(dir, Math.sin(a)).normalize();
+    });
+  }
+}
 function updateWeather(dt, t) {
+  if (weather.rain > 0.35 && state === 'play' && (shelterPlanT -= dt) <= 0) { shelterPlanT = 3; planShelters(); }   // (re)plan every few seconds while it pours
   if (state === 'play') {
     weather.played += dt; weather.t += dt;
     if (weather.phase === 'clear' && weather.played > weather.next) { weather.phase = 'rain'; weather.t = 0; }
@@ -771,12 +805,23 @@ function takePhoto() {
   const when = new Date(now()).toLocaleString('en-GB', { day: 'numeric', month: 'long', year: 'numeric', hour: '2-digit', minute: '2-digit', timeZone: CONFIG.timeZone });
   x.fillStyle = '#a37a55'; x.font = '500 28px Quicksand, sans-serif'; x.fillText(when, c.width / 2, ph + pad + 116);
   const url = c.toDataURL('image/png');
-  $('photoImg').src = url; $('btnSavePhoto').href = url;
-  $('btnSavePhoto').download = `birthday-planet-${new Date(now()).toISOString().slice(0, 16).replace(/[:T]/g, '-')}.png`;
+  $('photoImg').src = url;
+  photoShot = { canvas: c, name: `birthday-planet-${new Date(now()).toISOString().slice(0, 16).replace(/[:T]/g, '-')}.png` };
   $('flash').classList.add('on'); requestAnimationFrame(() => requestAnimationFrame(() => $('flash').classList.remove('on')));
   noiseSound(0.12, 3000, 0.08, 0.005); tone(1200, 0.05, 0.08, 0.05, 'square');
   setTimeout(() => openOverlay('photoCard'), 250);
 }
+// save the polaroid to her computer (a real file download, via a blob so big photos are fine)
+let photoShot = null;
+$('btnSavePhoto').onclick = () => {
+  if (!photoShot) return;
+  photoShot.canvas.toBlob(blob => {
+    const a = document.createElement('a'), href = URL.createObjectURL(blob);
+    a.href = href; a.download = photoShot.name; document.body.appendChild(a); a.click(); a.remove();
+    setTimeout(() => URL.revokeObjectURL(href), 4000);
+    toast('📷 Saved to your downloads');
+  }, 'image/png');
+};
 $('btnClosePhoto').onclick = () => { closeOverlay('photoCard'); if (finale?.ended) $('btnEndReopen').classList.remove('hidden'); };
 
 // ---------------------------------------------------------------- a hello that depends on the hour
@@ -1838,12 +1883,20 @@ function updateChickens(dt, t) {
       continue;
     }
     if (r.mode === 'toShelter' || r.mode === 'shelter') {   // rain: huddle under a leafy tree until it passes
-      if (weather.rain < 0.2) { r.mode = 'roam'; root.rotation.set(0, 0, 0); r.turnT = 0; placeRoamer(r); continue; }
+      if (weather.rain < 0.2) { r.mode = 'roam'; r.shelter = null; root.rotation.set(0, 0, 0); r.turnT = 0; placeRoamer(r); continue; }
+      if (r.mode === 'shelter' && r.shelter && AY.clone().applyQuaternion(r.q).angleTo(r.shelter) * R > 0.9) r.mode = 'toShelter';
       if (r.mode === 'toShelter') {
-        const there = !r.shelter || walkToward(r, r.shelter, 3.2, dt, 0.5);
+        const there = !r.shelter || walkToward(r, r.shelter, 3.2, dt, 0.35);
         hopAnim(r, t, 0.14, 11);
         if (there || r.t > 20) r.mode = 'shelter';
-      } else { root.position.y = 0; root.rotation.set(0.1, 0, Math.sin(t * 28 + r.phase) * 0.025); }   // a little shiver
+      } else {   // huddled together, peeking out at the rain, a little shiver
+        if (r.shelter) {   // settle exactly onto its spot so the group sits neatly side by side
+          const me = AY.clone().applyQuaternion(r.q), gap = me.angleTo(r.shelter);
+          if (gap > 1e-4) r.q.premultiply(tq.setFromAxisAngle(V().crossVectors(me, r.shelter).normalize(), Math.min(gap, (1.2 * dt) / R))).normalize();
+        }
+        if (r.tree) turnToward(r, r.group.position.clone().multiplyScalar(2).sub(r.tree.dir.clone().multiplyScalar(R)), dt);
+        root.position.y = 0; root.rotation.set(0.1, 0, Math.sin(t * 28 + r.phase) * 0.025);
+      }
       placeRoamer(r);
       continue;
     }
@@ -1895,7 +1948,7 @@ function updateChickens(dt, t) {
     if (state === 'play') {
       const h = hourOfDay();
       let next = null;
-      if (weather.rain > 0.35) { next = 'toShelter'; r.shelter = shelterFor(r); }
+      if (weather.rain > 0.35) { next = 'toShelter'; if (!r.shelter) { planShelters(); } r.shelter = r.shelter || shelterFor(r); }
       else if (isNightHour(h) && r.i % 5 < 3) { next = 'toNap'; r.nap = NAP_SPOTS.reduce((a, b) => (b.angleTo(r.group.position) < a.angleTo(r.group.position) ? b : a), NAP_SPOTS[0]); }
       else if (isDuskHour(h) && r.i % 2 === 0) next = 'watch';
       else if (butterfliesOut && Math.random() < dt * 0.1) { const b = bfData.find(b => b.pos.distanceTo(r.group.position) < 5); if (b) { next = 'chase'; r.chase = b; } }

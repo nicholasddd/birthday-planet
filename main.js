@@ -249,8 +249,13 @@ function lakeSpot(angle, dist) {
   const T = t1.multiplyScalar(Math.cos(angle)).addScaledVector(t2, Math.sin(angle));
   return c.clone().applyAxisAngle(c.clone().cross(T).normalize(), dist);
 }
+// the lagoon's shore wobbles, so walk outward from the middle until the ground is dry, then step just past the edge
+function shoreSpot(angle) {
+  for (let f = 0.75; f < 1.5; f += 0.01) if (!world.standHeight(lakeSpot(angle, world.lake.r * f)).wet) return lakeSpot(angle, world.lake.r * f + 0.012);
+  return lakeSpot(angle, world.lake.r * 1.02);
+}
 const WATER_SPOTS = [
-  ...[0, 1, 2, 3, 4].map(k => ({ dir: lakeSpot(k * 1.2566 + 0.3, world.lake.r * 1.02), float: false, taken: null })),
+  ...[0, 1, 2, 3, 4].map(k => ({ dir: shoreSpot(k * 1.2566 + 0.3), float: false, taken: null })),
   ...[0, 1, 2].map(k => ({ dir: lakeSpot(k * 2.1 + 1, world.lake.r * (0.18 + 0.14 * k)), float: true, taken: null })),
 ];
 let waterT = 2;

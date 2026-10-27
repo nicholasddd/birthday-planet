@@ -178,12 +178,36 @@ export function buildPlanet(seed = 1) {
   const group = new THREE.Group();
 
   // ---------------------------------------------------------------- features
-  const RW = 0.045, PW = 0.032, LAKE = 0.27, BEACH = 0.38;
+  const RW = 0.05, PW = 0.032, LAKE = 0.36, BEACH = 0.48, POND = 0.075;
   let lakeC;
   do { lakeC = randDir(rng); } while (lakeC.angleTo(AY) < 0.75 || lakeC.angleTo(AY) > 1.0 || lakeC.z < 0.3);
-  const river1 = new Line(rng, lakeC, randTangent(lakeC, rng), 190, 0.018, 0.22);
-  const river2 = new Line(rng, river1.pts[80], randTangent(river1.pts[80], rng), 100, 0.018, 0.22);
-  const rivers = [river1, river2];
+  // (the old wandering rivers are still generated, unused, so everything else on the planet keeps its place)
+  { const r1 = new Line(rng, lakeC, randTangent(lakeC, rng), 190, 0.018, 0.22); new Line(rng, r1.pts[80], randTangent(r1.pts[80], rng), 100, 0.018, 0.22); }
+  // One river: it rises from a little spring pond and flows in calm S-bends, widening, into the lagoon.
+  const river = (() => {
+    const rr = mulberry32(seed * 31 + 7), pts = [], w = [], N = 95;
+    const head = randTangent(lakeC, rr);
+    const p = lakeC.clone().applyAxisAngle(new THREE.Vector3().crossVectors(lakeC, head).normalize(), LAKE * 0.6);
+    const t = head.clone().addScaledVector(p, -head.dot(p)).normalize(), ph = rr() * 6;
+    for (let i = 0; i < N; i++) {
+      pts.push(p.clone());
+      w.push(RW * lerp(1.7, 0.75, smooth(0, 1, i / (N - 1))));   // a wide mouth, narrowing toward the spring
+      t.applyAxisAngle(p, 0.05 * Math.sin(i * 0.085 + ph));      // gentle meander
+      p.addScaledVector(t, 0.017).normalize();
+      t.addScaledVector(p, -t.dot(p)).normalize();
+    }
+    const a = new Float32Array(pts.flatMap(v => [v.x, v.y, v.z]));
+    return {
+      pts, w, src: pts[N - 1],
+      info(x, y, z) {   // angular distance to the river's centre line, and its width there
+        let best = -2, bi = 0;
+        for (let i = 0; i < a.length; i += 3) { const c = a[i] * x + a[i + 1] * y + a[i + 2] * z; if (c > best) { best = c; bi = i / 3; } }
+        return { d: Math.acos(Math.min(1, best)), w: w[bi] };
+      },
+    };
+  })();
+  // the lagoon's shore is softly irregular rather than a perfect circle
+  const lakeE1 = new THREE.Vector3().crossVectors(AY, lakeC).normalize(), lakeE2 = new THREE.Vector3().crossVectors(lakeC, lakeE1);
   const paths = [0, 1, 2].map(k => {
     const h = new THREE.Vector3(Math.cos(k * 2.1 + rng()), 0, Math.sin(k * 2.1 + rng()));
     return new Line(rng, AY, h, 130, 0.02, 0.14);
@@ -193,12 +217,14 @@ export function buildPlanet(seed = 1) {
     + 0.07 * Math.sin(7 * x + 5 * z) * Math.cos(6 * y);
 
   function sample(x, y, z) {
-    const rd = Math.min(river1.dist(x, y, z), river2.dist(x, y, z));
-    const ld = Math.acos(clamp(x * lakeC.x + y * lakeC.y + z * lakeC.z, -1, 1));
+    const ri = river.info(x, y, z), sd = Math.acos(clamp(x * river.src.x + y * river.src.y + z * river.src.z, -1, 1));
+    const rd = Math.min(ri.d - ri.w, sd - POND);   // distance to the water's edge (negative = in the water)
+    const th = Math.atan2(x * lakeE2.x + y * lakeE2.y + z * lakeE2.z, x * lakeE1.x + y * lakeE1.y + z * lakeE1.z);
+    const ld = Math.acos(clamp(x * lakeC.x + y * lakeC.y + z * lakeC.z, -1, 1)) * (1 + 0.06 * Math.sin(3 * th + 1) + 0.035 * Math.sin(5 * th + 2));
     const pd = Math.min(...paths.map(p => p.dist(x, y, z)));
     const pathF = smooth(PW, PW * 0.45, pd);
     const beachF = smooth(BEACH, LAKE, ld);
-    const riverF = smooth(RW, RW * 0.5, rd);
+    const riverF = Math.max(smooth(ri.w, ri.w * 0.5, ri.d), smooth(POND, POND * 0.5, sd));
     const lakeF = smooth(LAKE, LAKE * 0.55, ld);
     let h = hills(x, y, z);
     h = lerp(h, 0.08, pathF * 0.7);
@@ -246,7 +272,7 @@ export function buildPlanet(seed = 1) {
   group.add(water);
 
   // ---------------------------------------------------------------- helpers
-  const isWet = s => s.rd < RW + 0.02 || s.ld < BEACH;
+  const isWet = s => s.rd < 0.02 || s.ld < BEACH;
   function placeOnSurface(obj, dir, lift = 0, spin = 0) {
     obj.position.copy(dir).multiplyScalar(R + heightAt(dir) + lift);
     obj.quaternion.setFromUnitVectors(AY, dir);
@@ -275,15 +301,15 @@ export function buildPlanet(seed = 1) {
       if (run.length) {
         const i = run[Math.floor(run.length / 2)];
         const d = p.pts[i], fwd = p.pts[Math.min(i + 1, p.pts.length - 1)].clone().sub(p.pts[Math.max(i - 1, 0)]).normalize();
-        if (!bridges.some(b => b.dir.angleTo(d) < 0.15)) bridges.push({ dir: d.clone(), fwd });
+        if (!bridges.some(b => b.dir.angleTo(d) < 0.15)) bridges.push({ dir: d.clone(), fwd, w: river.info(d.x, d.y, d.z).w });
       }
       run = [];
     };
-    p.pts.forEach((d, i) => { if (Math.min(river1.dist(d.x, d.y, d.z), river2.dist(d.x, d.y, d.z)) < RW) run.push(i); else flush(); });
+    p.pts.forEach((d, i) => { const ri = river.info(d.x, d.y, d.z); if (ri.d < ri.w && sample(d.x, d.y, d.z).ld > LAKE) run.push(i); else flush(); });
     flush();
   }
-  const BL = RW * R * 2 + 1.6; // bridge length
   for (const b of bridges) {
+    const BL = b.w * R * 2 + 1.8;   // bridge length: spans the river where it crosses
     const br = new THREE.Group();
     const up = b.dir, fwd = b.fwd.addScaledVector(up, -b.fwd.dot(up)).normalize(), right = new THREE.Vector3().crossVectors(up, fwd);
     br.quaternion.setFromRotationMatrix(new THREE.Matrix4().makeBasis(right, up, fwd));
@@ -331,7 +357,7 @@ export function buildPlanet(seed = 1) {
     const d = randDir(rng), a = d.angleTo(AY);
     if (a < 0.45 || a > 1.7) continue;
     const s = sample(d.x, d.y, d.z), rr = (STAGE_R + 1.5) / R;
-    if (isWet(s) || s.pd < PW + rr || s.ld < BEACH + rr || s.rd < RW + rr) continue;
+    if (isWet(s) || s.pd < PW + rr || s.ld < BEACH + rr || s.rd < rr) continue;
     if (flowerDirs.some(f => f.angleTo(d) < rr + 0.12) || bridges.some(b => b.dir.angleTo(d) < rr + 0.1)) continue;
     stageDir = d;
   }
@@ -524,8 +550,8 @@ export function buildPlanet(seed = 1) {
   // a few river stones
   const stoneM = new THREE.MeshStandardMaterial({ color: 0xc9c4cf, roughness: 0.9 });
   for (let k = 0; k < 14; k++) {
-    const rv = rivers[k % 2], d = rv.pts[Math.floor(rng() * rv.pts.length)].clone();
-    d.addScaledVector(randTangent(d, rng), RW + 0.03).normalize();
+    const j = Math.floor(rng() * river.pts.length), d = river.pts[j].clone();
+    d.addScaledVector(randTangent(d, rng), river.w[j] + 0.03).normalize();
     const s = sample(d.x, d.y, d.z); if (s.ld < BEACH) continue;
     const st = new THREE.Mesh(new THREE.SphereGeometry(0.35 + rng() * 0.3, 10, 8), stoneM); st.scale.y = 0.6;
     shadowAll(st); placeOnSurface(st, d, 0.05); group.add(st);

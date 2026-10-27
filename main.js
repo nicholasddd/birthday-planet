@@ -170,6 +170,7 @@ const { flowerDirs, obstacles, cloudPivot, placeOnSurface, shadowAll } = world;
 
 // ============================================================ characters
 const girl = makeChibi(CONFIG.girl, true);
+girl.root.visible = false;   // she only appears once she steps inside
 scene.add(girl.root);
 const boy = makeChibi(CONFIG.boy, false);
 boy.root.visible = false;
@@ -591,7 +592,9 @@ document.fonts?.ready.then(fitLetter);
 $('btnStart').onclick = () => {
   getAudio(); playMusic('planet');
   closeOverlay('intro');
-  state = 'play'; diveUntil = lastT + 3.2;
+  state = 'play'; diveUntil = lastT + DIVE;
+  girl.root.visible = true;
+  dive = { from: camera.position.clone(), look: camLook.clone(), up: camera.up.clone() };
   $('hud').classList.remove('hidden');
   if (matchMedia('(pointer: coarse)').matches) { $('joystick').classList.remove('hidden'); $('btnJump').classList.remove('hidden'); }
   // first visit: show the controls once she's landed; she can't move until she's read them
@@ -895,7 +898,7 @@ let faceYaw = 0, faceTarget = 0;   // which way she visually faces, relative to 
   const f = V(0, 0, 1).applyQuaternion(pq), to = sd.clone().addScaledVector(d, -sd.dot(d)).normalize();
   pq.premultiply(tq.setFromAxisAngle(d, Math.atan2(V().crossVectors(f, to).dot(d), f.dot(to))));
   girlH = world.stage.top;
-  camera.position.set(0, R + 7, -11).applyQuaternion(pq); camLook.set(0, R + 1.5, 4).applyQuaternion(pq);
+  camera.position.set(0, 26, 66); camLook.set(0, 2, 0);   // the camera starts out in space, slowly circling the planet
 }
 
 function blocked(oldDir, newDir, pad = 0.35, feet = -Infinity, solidOnly = false) {
@@ -908,7 +911,8 @@ function blocked(oldDir, newDir, pad = 0.35, feet = -Infinity, solidOnly = false
 }
 
 let nearChicken = null, nearHolder = null, offering = null, nearFeed = null, nearBerry = null, actText = '';
-let popFocus = null, camSide = 0, lastT = 0, diveUntil = 0;   // close-up camera for pulling
+let popFocus = null, camSide = 0, lastT = 0, diveUntil = 0, dive = null;
+const DIVE = 4;   // seconds for the opening swoop down to her   // close-up camera for pulling
 // candidate shots (sideways, along the pull) — 3/4 views first, then side-on, then from behind
 const SHOTS = [[5, -3.6], [-5, -3.6], [6.2, 0.4], [-6.2, 0.4], [2.6, -5.8], [-2.6, -5.8], [0, -6.4], [3.5, 3.5], [-3.5, 3.5]];
 function pickShot(camAt, target) {
@@ -1030,7 +1034,19 @@ function updatePlayer(dt, t) {
     camera.lookAt(camLook);
     return;
   }
-  if (t < diveUntil) k = 1 - Math.exp(-dt * 1.3);   // gentle dive down to her after the welcome
+  if (t < diveUntil && dive) {   // after the welcome: swoop round the planet (never through it) and down behind her
+    const e = ease(clamp(1 - (diveUntil - t) / DIVE, 0, 1));
+    const to = V(0, R + 7, -11).applyQuaternion(pq), toLook = V(0, R + 1.5, 4).applyQuaternion(pq);
+    const r0 = dive.from.length(), r1 = to.length();
+    const dir = dive.from.clone().normalize(), dir1 = to.clone().normalize();
+    const ang = dir.angleTo(dir1), axis = V().crossVectors(dir, dir1);
+    if (axis.lengthSq() > 1e-8) dir.applyAxisAngle(axis.normalize(), ang * e);
+    camera.position.copy(dir).multiplyScalar(lerp(r0, r1, e) + Math.sin(e * Math.PI) * 10);   // a little arc outward on the way
+    camLook.copy(dive.look).lerp(toLook, e);
+    camera.up.copy(dive.up).lerp(AY.clone().applyQuaternion(pq), e).normalize();
+    camera.lookAt(camLook);
+    return;
+  }
   if ($('letter').classList.contains('open')) {   // reading: drift in close to her (and her chouchou)
     camera.position.lerp(girl.root.localToWorld(V(1.4, 2.3, 4.6)), k * 0.6);
     camLook.lerp(girl.root.localToWorld(V(0, 1.4, 0)), k * 0.6);

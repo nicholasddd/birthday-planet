@@ -202,7 +202,7 @@ export function buildPlanet(seed = 1) {
       info(x, y, z) {   // angular distance to the river's centre line, and its width there
         let best = -2, bi = 0;
         for (let i = 0; i < a.length; i += 3) { const c = a[i] * x + a[i + 1] * y + a[i + 2] * z; if (c > best) { best = c; bi = i / 3; } }
-        return { d: Math.acos(Math.min(1, best)), w: w[bi] };
+        return { d: Math.acos(Math.min(1, best)), w: w[bi], i: bi };
       },
     };
   })();
@@ -299,9 +299,11 @@ export function buildPlanet(seed = 1) {
     let run = [];
     const flush = () => {
       if (run.length) {
-        const i = run[Math.floor(run.length / 2)];
-        const d = p.pts[i], fwd = p.pts[Math.min(i + 1, p.pts.length - 1)].clone().sub(p.pts[Math.max(i - 1, 0)]).normalize();
-        if (!bridges.some(b => b.dir.angleTo(d) < 0.15)) bridges.push({ dir: d.clone(), fwd, w: river.info(d.x, d.y, d.z).w });
+        // sit the bridge on the river's centre line, pointing straight across it (perpendicular to the flow)
+        const q = p.pts[run[Math.floor(run.length / 2)]], ri = river.info(q.x, q.y, q.z), P = river.pts;
+        const d = P[ri.i].clone(), flow = P[Math.min(ri.i + 1, P.length - 1)].clone().sub(P[Math.max(ri.i - 1, 0)]).normalize();
+        const fwd = new THREE.Vector3().crossVectors(d, flow).normalize();
+        if (!bridges.some(b => b.dir.angleTo(d) < 0.15)) bridges.push({ dir: d, fwd, w: ri.w });
       }
       run = [];
     };

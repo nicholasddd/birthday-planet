@@ -72,9 +72,6 @@ export function makeParasol() {
   const th = 0.95, at = new THREE.Vector3(0, Math.cos(th) * RAD * H, Math.sin(th) * RAD).add(new THREE.Vector3(0, 2.3, 0));
   const n = new THREE.Vector3(0, Math.cos(th) / H, Math.sin(th)).normalize();
   face(root, at.addScaledVector(n, 0.01), n, 1.4);
-  // a little pink flower tucked by its beak
-  const pink = std(0xff8fbf);
-  for (let k = 0; k < 5; k++) { const pe = new THREE.Mesh(new THREE.SphereGeometry(0.05, 8, 6), pink); pe.position.copy(at).add(new THREE.Vector3(0.32 + Math.cos(k * 1.256) * 0.07, -0.12 + Math.sin(k * 1.256) * 0.07, 0.02)); root.add(pe); }
   // pole + curved handle
   const wood = std(0xd9a877, { roughness: 0.6 });
   const pole = new THREE.Mesh(new THREE.CylinderGeometry(0.028, 0.03, 2.5, 8), wood); pole.position.y = 1.15; root.add(pole);

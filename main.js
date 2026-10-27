@@ -34,6 +34,7 @@ const params = new URLSearchParams(location.search);
 const DEBUG = params.has('debug');
 let timeOffset = DEBUG ? Number(store.get('bday-offset') || 0) : 0;
 const startMs = new Date(CONFIG.startTime).getTime();
+const openMs = new Date(CONFIG.openTime || CONFIG.startTime).getTime();   // the waiting page ends here
 const now = () => Date.now() + timeOffset;
 const unlockTime = i => startMs + i * HOUR;
 function unlockedCount() {
@@ -604,16 +605,20 @@ function updateTimeUI() {
   const st = $('status');
   st.classList.toggle('ready', waiting + holding > 0);
   const dot = '<span class="dot"></span>';
-  const next = u < TOTAL ? ` · next in ${fmtDur(unlockTime(u) - now())}` : '';
+  const next = '';   // after the first hour there are no countdowns: chouchous just turn up
   if (state === 'finale') st.classList.add('hidden');
   else if (collected.size === TOTAL) {
     st.innerHTML = statue.state === 'awake' ? `${dot}The giant chouchou is waiting on the stone stage` : `${dot}All 24 letters found · go back to the stone chouchou`;
-  } else if (u === 0) st.innerHTML = `${dot}Something stirs in ${fmtDur(startMs - now())}`;
+  } else if (u === 0) st.innerHTML = `${dot}The planet is quiet… for now`;
   else if (waiting > 0) st.innerHTML = known()
     ? `${dot}${waiting > 1 ? waiting + ' chouchous are' : 'A chouchou is'} stuck${next}`
     : `${dot}Something is glowing on the planet${next}`;
   else if (holding > 0) st.innerHTML = `${dot}A chouchou has a letter for you${next}`;
-  else st.innerHTML = known() ? `${dot}Next chouchou in ${fmtDur(unlockTime(u) - now())}` : `${dot}Something new stirs in ${fmtDur(unlockTime(u) - now())}`;
+  else st.innerHTML = known() ? `${dot}The chouchous are resting · more will come` : `${dot}All is quiet · something new will come`;
+  // the very first hour: a little countdown so she knows something is on its way
+  const firstWait = state === 'play' && u === 0 && now() >= openMs;
+  $('firstTimer').classList.toggle('hidden', !firstWait);
+  if (firstWait) $('ftTime').textContent = fmtDur(startMs - now());
   if (u > lastUnlocked) {
     toast(known() ? '🥬 A chouchou got stuck somewhere — follow the glow' : '✨ Something is glowing somewhere — follow the light');
     chime();
@@ -881,7 +886,7 @@ let waitingMode = false;
 function beginIntro() { if (store.get('bday-unlocked') === '1') welcome(true); else storyNext(); }
 function updateWaiting() {
   if (!waitingMode) return;
-  const ms = startMs - now();
+  const ms = openMs - now();
   if (ms <= 0) {   // it's time: the planet wakes up
     waitingMode = false;
     $('waiting').classList.add('hidden'); $('storyBox').classList.remove('hidden');
@@ -897,11 +902,11 @@ function updateWaiting() {
   $('cdS').textContent = p2(sTot % 60);
 }
 playMusic('waiting');
-if (now() < startMs) {
+if (now() < openMs) {
   waitingMode = true;
   const tz = CONFIG.timeZone, opts = { day: 'numeric', month: 'long', timeZone: tz };
-  const when = new Date(startMs).toLocaleDateString('en-GB', opts);
-  const time = new Date(startMs).toLocaleTimeString('en-GB', { hour: 'numeric', minute: '2-digit', hour12: true, timeZone: tz }).replace(':00', '').replace(' ', '');
+  const when = new Date(openMs).toLocaleDateString('en-GB', opts);
+  const time = new Date(openMs).toLocaleTimeString('en-GB', { hour: 'numeric', minute: '2-digit', hour12: true, timeZone: tz }).replace(':00', '').replace(' ', '');
   $('wakeNote').textContent = `It wakes on ${when} at ${time === '12am' ? 'midnight' : time}${CONFIG.timeZoneName ? ` (${CONFIG.timeZoneName})` : ''}. Come back then — it will be waiting for you.`;
   $('waiting').classList.remove('hidden'); $('storyBox').classList.add('hidden');
   $('intro').classList.add('sleeping');
@@ -917,7 +922,8 @@ if (DEBUG) {
   const add = (label, fn) => { const b = document.createElement('button'); b.textContent = label; b.onclick = fn; d.appendChild(b); };
   const setOff = v => { timeOffset = v; store.set('bday-offset', String(v)); syncChickens(); updateTimeUI(); };
   d.append('DEBUG');
-  add('Jump to start', () => setOff(startMs - Date.now() + 1000));
+  add('Jump to start', () => setOff(openMs - Date.now() + 1000));
+  add('Jump to first chouchou', () => setOff(startMs - Date.now() + 1000));
   add('+1 hour', () => setOff(timeOffset + HOUR));
   add('Unlock all', () => setOff(startMs + TOTAL * HOUR - Date.now()));
   add('Collect all 24', () => { for (let i = 0; i < TOTAL; i++) if (!collected.has(i)) freeChicken(i, true); for (const r of roamers) if (r.mode === 'present') receiveFrom(r, true); updateTimeUI(); });

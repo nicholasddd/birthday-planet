@@ -18,6 +18,9 @@ export const CONFIG = {
   // Chouchou #N appears N-1 hours after this, so the 24th arrives at midnight as 12 November begins:
   // finishing the game kicks off her birthday.
   startTime: '2026-11-11T01:00:00+07:00',
+  // When the planet itself opens (the waiting page ends): midnight, an hour before the first chouchou.
+  // That first hour she can wander, with a little countdown to show something is coming.
+  openTime: '2026-11-11T00:00:00+07:00',
   // Shown on the waiting page so the wake-up time reads in Thai time
   timeZone: 'Asia/Bangkok', timeZoneName: 'Thailand time',
 

@@ -51,6 +51,7 @@
   body.hint-on #btnAct { bottom: max(52px, calc(env(safe-area-inset-bottom) + 44px)); }
   #berryPill.bump { animation: bump .35s cubic-bezier(.2,1.6,.4,1); }
   @keyframes bump { 40% { scale: 1.25; } }
+  #btnFloat { position: fixed; left: 50%; translate: -50% 0; bottom: max(52px, calc(env(safe-area-inset-bottom) + 44px)); z-index: 12; border-radius: 999px; padding: 5px 12px; font-size: 11px; font-weight: 600; }
   #btnPull, #btnAsk { border-radius: 14px; padding: 7px 14px 8px; font-size: 11.5px; font-weight: 600; min-width: 170px; text-align: center; touch-action: manipulation; transition: scale .1s; }
   #btnPull:active, #btnAsk:active { scale: .95; }
   #btnPull .track { margin-top: 6px; height: 4px; border-radius: 999px; background: rgba(143, 191, 99, .2); overflow: hidden; }
@@ -237,6 +238,7 @@
 <div id="toasts"></div>
 <button id="btnPull" class="glass bottom hidden"><span class="pc-text">Spam <b>SPACE</b> to pull 🥬</span><span class="pc-touch">Tap tap tap to pull 🥬</span><div class="track"><i id="pullFill"></i></div></button>
 <button id="btnAct" class="glass bottom hidden"></button>
+<button id="btnFloat" class="glass hidden"></button>
 <button id="btnAsk" class="glass bottom hidden"><span class="pc-text">💌 <b>SPACE</b> to take his letter</span><span class="pc-touch">💌 Tap to take his letter</span></button>
 <button id="btnEndReopen" class="pill glass bottom hidden">💌 Happy Birthday</button>
 <div id="orbitHint" class="pill glass hidden">↑ ↓ to zoom · ← → to look around</div>
@@ -318,6 +320,9 @@
       <div class="krow"><span class="kcaps"><span class="wasd"><kbd>W</kbd><span><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd></span></span></span><span>walk around</span></div>
       <div class="krow"><span class="kcaps"><kbd>←</kbd><kbd>→</kbd></span><span>look around</span></div>
       <div class="krow"><span class="kcaps"><kbd class="wide">space</kbd></span><span>jump — or do something, when there's something nearby</span></div>
+      <div class="krow"><span class="kcaps"><kbd>I</kbd></span><span>a glowing star wand, for the night</span></div>
+      <div class="krow"><span class="kcaps"><kbd>P</kbd></span><span>a parasol, for sunny days</span></div>
+      <div class="krow"><span class="kcaps"><kbd>O</kbd></span><span>a float, at the lagoon's edge</span></div>
       <div class="krow"><span class="kcaps"><kbd>📖</kbd></span><span>everything you've found, top right</span></div>
     </div>
     <div class="actions"><button class="btn" id="btnControlsOk">Let's explore</button></div>

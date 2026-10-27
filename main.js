@@ -10,6 +10,7 @@ import { makeChibi, animateCharacter } from './characters.js';
 import { makeCabbageChicken } from './chickens.js';
 import { bake } from './perf.js';
 import { createMusic } from './music.js';
+import { makeStarWand, makeParasol, makeFloat } from './props.js';
 
 // ============================================================ utils
 const TOTAL = 24;
@@ -193,6 +194,103 @@ const arrowPivot = new THREE.Group(); arrowPivot.position.y = 3.1; girl.root.add
 {
   const g = new THREE.ConeGeometry(0.22, 0.6, 12); g.rotateX(Math.PI / 2); g.translate(0, 0, 0.9);
   arrowPivot.add(new THREE.Mesh(g, new THREE.MeshStandardMaterial({ color: 0xffe066, emissive: 0xffc400, emissiveIntensity: 1.5 })));
+}
+
+// ============================================================ things she can carry: star wand (I), parasol (P), pool float (O)
+const gear = { wand: false, parasol: false, floating: false };
+const wand = makeStarWand(glowTex), parasol = makeParasol(), floatRing = makeFloat();
+// each hangs from a hand, in a holder that cancels the arm's own tilt, so the prop stays upright
+const wandHolder = new THREE.Group(), parasolHolder = new THREE.Group();
+wandHolder.rotation.order = parasolHolder.rotation.order = 'ZYX';
+wandHolder.position.y = parasolHolder.position.y = -0.44;
+wandHolder.add(wand.root); parasolHolder.add(parasol.root);
+girl.parts.shR.add(wandHolder); girl.parts.shL.add(parasolHolder);
+parasol.root.rotation.set(-0.17, 0, 0.12);   // leaning back over her head
+wandHolder.visible = parasolHolder.visible = false;
+floatRing.root.position.y = 0.32; floatRing.root.visible = false; girl.root.add(floatRing.root);
+// the wand's light is always in the scene (just dark when put away), so switching it on never stalls to rebuild shaders
+// I: she raises the wand, its star lifts off and floats up above her head, lighting a soft pool around her like a
+// spotlight; I again calls it back down. The light is always in the scene (just dark when off) so switching never stalls.
+const wandLight = new THREE.SpotLight(0xffdc96, 0, 16, 0.62, 0.85, 1.2);
+scene.add(wandLight, wandLight.target);
+const sky1 = new THREE.Group();   // the floating star (shares the wand star's geometry + material)
+sky1.add(new THREE.Mesh(wand.star.geometry, wand.star.material), wand.halo.clone());
+sky1.children[1].position.set(0, 0, 0); sky1.children[1].scale.setScalar(1.1);
+sky1.visible = false; scene.add(sky1);
+const starFx = { phase: 'off', t: 0, from: V() };   // off → raise → rise → on → fall → off
+const ARM = { wand: [-1.35, -0.4], parasol: [-0.85, 0.25] };   // [forward tilt, outward tilt] of the holding arm
+function toggleGear(k) {
+  if (state !== 'play' || modalOpen || introLock) return;
+  if (k === 'wand') {
+    if (starFx.phase === 'off') { starFx.phase = 'raise'; starFx.t = 0; gear.wand = true; wandHolder.visible = true; wand.star.visible = wand.halo.visible = true; [1318.5, 1568, 2093].forEach((f, j) => tone(f, j * 0.06, 0.5, 0.05, 'sine')); }
+    else if (starFx.phase === 'on' || starFx.phase === 'rise') { starFx.phase = 'fall'; starFx.t = 0; starFx.from.copy(sky1.position); tone(1046, 0, 0.3, 0.04, 'sine'); tone(784, 0.1, 0.4, 0.04, 'sine'); }
+    return;
+  }
+  gear[k] = !gear[k];
+  (k === 'wand' ? wandHolder : parasolHolder).visible = gear[k];
+  if (gear[k]) {
+    const at = (k === 'wand' ? wand.star : parasol.root).getWorldPosition(V());
+    burst(at, k === 'wand' ? 0xffe27a : 0xffffff, 14, 3, 0.5, 0.8);
+    if (k === 'wand') [1318.5, 1568, 2093].forEach((f, j) => tone(f, j * 0.06, 0.5, 0.05, 'sine'));
+    else { tone(520, 0, 0.12, 0.08, 'triangle'); tone(780, 0.08, 0.2, 0.06, 'triangle'); }
+  } else tone(400, 0, 0.1, 0.05, 'sine');
+}
+// the float: hop on at the lagoon's edge, paddle anywhere on the lagoon, hop off at the shore
+const onLagoon = d => world.standHeight(d).wet && d.angleTo(world.lake.c) < world.lake.r * 1.35;
+function stepToward(d, sign, maxAng, test) {   // walk across the surface toward (+1) or away from (-1) the lagoon's middle until test passes
+  const axis = V().crossVectors(d, world.lake.c).normalize().multiplyScalar(sign);
+  for (let a = 0.01; a < maxAng; a += 0.01) { const nd = d.clone().applyAxisAngle(axis, a); if (test(nd)) return new THREE.Quaternion().setFromAxisAngle(axis, a + 0.012); }
+  return null;
+}
+let floatHint = '';
+const hoverAt = t => girl.root.localToWorld(V(0, 3.4 + Math.sin(t * 1.6) * 0.15, 0.35));   // where the star hovers, just above her head
+function updateStar(dt, t) {
+  starFx.t += dt;
+  const T = starFx.t, ph = starFx.phase;
+  if (ph === 'raise') {   // she lifts the wand up high...
+    if (T > 0.55) {
+      starFx.phase = 'rise'; starFx.t = 0;
+      wand.star.getWorldPosition(starFx.from); sky1.position.copy(starFx.from); sky1.visible = true;
+      wand.star.visible = wand.halo.visible = false;
+      burst(starFx.from.clone(), 0xffe9a8, 12, 2.5, 0.4, 0.9);
+    }
+  } else if (ph === 'rise') {   // ...the star lifts off and drifts slowly up above her
+    const e = ease(clamp(T / 1.8, 0, 1));
+    sky1.position.copy(starFx.from).lerp(hoverAt(t), e);
+    if (T > 0.4) { wandHolder.visible = false; gear.wand = false; }   // the wand is tucked away again, arm back down
+    if (T > 1.8) starFx.phase = 'on';
+  } else if (ph === 'on') {   // it follows her, a little lazily
+    sky1.position.lerp(hoverAt(t), 1 - Math.exp(-dt * 3));
+  } else if (ph === 'fall') {   // called back: it drifts down to her and fades away
+    const e = ease(clamp(T / 0.9, 0, 1));
+    sky1.position.copy(starFx.from).lerp(girl.root.localToWorld(V(0, 1.2, 0.5)), e);
+    sky1.scale.setScalar(Math.max(0.01, 1 - e));
+    if (T > 0.9) { starFx.phase = 'off'; sky1.visible = false; sky1.scale.setScalar(1); burst(girl.root.localToWorld(V(0, 1.2, 0.5)), 0xffe9a8, 10, 2, 0.35, 0.8); }
+  }
+  if (sky1.visible) {
+    sky1.children[0].rotation.y += dt * 1.2;
+    sky1.children[1].material.opacity = 0.45 + Math.sin(t * 3) * 0.08;
+    wandLight.position.copy(sky1.position);
+    girl.root.getWorldPosition(wandLight.target.position);   // a soft pool of light around her feet
+    if (Math.random() < dt * 3) burst(sky1.position.clone(), 0xffe9a8, 1, 0.6, 0.22, 1);   // twinkles
+  }
+}
+function floatPress() {
+  if (state !== 'play' || modalOpen || introLock || airborne) return;
+  const here = AY.clone().applyQuaternion(pq);
+  if (!gear.floating) {
+    const q = onLagoon(here) ? new THREE.Quaternion() : stepToward(here, 1, 3 / R, onLagoon);
+    if (!q) return;
+    pq.premultiply(q); gear.floating = true; floatRing.root.visible = true; floatRing.root.scale.setScalar(0.01);
+    burst(here.multiplyScalar(R + world.lake.water), 0xffffff, 18, 4, 0.5, 0.8);
+    tone(330, 0, 0.15, 0.08, 'sine'); tone(660, 0.08, 0.25, 0.06, 'sine');
+  } else {
+    const q = stepToward(here, -1, 3 / R, d => !world.standHeight(d).wet);
+    if (!q) { toast('🛟 Paddle a little closer to the shore to hop off'); return; }
+    pq.premultiply(q); gear.floating = false; floatRing.root.visible = false;
+    girlH = world.standHeight(AY.clone().applyQuaternion(pq)).h;
+    burst(girl.root.position.clone(), 0xffffff, 14, 4, 0.5, 0.8); tone(500, 0, 0.12, 0.07, 'triangle');
+  }
 }
 
 // ============================================================ chouchous (cabbage chickens)
@@ -845,7 +943,11 @@ addEventListener('keydown', e => {
   keys[e.code] = true;
   if (state === 'finale') { if ((e.code === 'Space' || e.code === 'Enter') && !e.repeat) { e.preventDefault(); finaleAction(); } return; }
   if (e.code === 'Space') { e.preventDefault(); if (!e.repeat) spaceAction(); }
+  if (!e.repeat && e.code === 'KeyI') toggleGear('wand');
+  if (!e.repeat && e.code === 'KeyP') toggleGear('parasol');
+  if (!e.repeat && e.code === 'KeyO') floatPress();
 });
+$('btnFloat').addEventListener('pointerdown', e => { e.preventDefault(); floatPress(); });
 $('btnPull').addEventListener('pointerdown', e => { e.preventDefault(); pullPress(); });
 // SPACE does whatever makes sense where she is: take a letter, pull, feed, pick — or just jump
 function spaceAction() {
@@ -893,7 +995,7 @@ let vy = 0, airborne = false;
 const GRAVITY = 26;
 const jumpHeight = () => 1.2;
 function jump() {
-  if (state !== 'play' || modalOpen || airborne) return;
+  if (state !== 'play' || modalOpen || airborne || gear.floating) return;
   vy = Math.sqrt(2 * GRAVITY * jumpHeight()); airborne = true;
   tone(420, 0, 0.12, 0.09, 'sine'); tone(760, 0.05, 0.18, 0.07, 'sine');
   burst(girl.root.position.clone(), 0xffffff, 5, 2.5, 0.4, 0.5);
@@ -961,16 +1063,22 @@ function updatePlayer(dt, t) {
   if (len > 1) { mx /= len; mz /= len; len = 1; }
   if (len > 0.05) {
     const axis = V(mz, 0, -mx).normalize();
-    const nq = pq.clone().multiply(tq.setFromAxisAngle(axis, (len * (wet ? 4 : 7) * dt) / R));
+    const nq = pq.clone().multiply(tq.setFromAxisAngle(axis, (len * (gear.floating ? 3.4 : wet ? 4 : 7) * dt) / R));
     const od = AY.clone().applyQuaternion(pq), nd = AY.clone().applyQuaternion(nq);
-    if (!blocked(od, nd, 0.35, girlH) && !world.isDeep(nd)) pq.copy(nq);   // the lagoon's middle is too deep
+    if (gear.floating) { if (onLagoon(nd)) pq.copy(nq); }   // on the float: anywhere on the lagoon, but not up onto land
+    else if (!blocked(od, nd, 0.35, girlH) && !world.isDeep(nd)) pq.copy(nq);   // the lagoon's middle is too deep
     faceTarget = Math.atan2(mx, mz);
   }
   pq.normalize();
   const here = AY.clone().applyQuaternion(pq), stand = world.standHeight(here);
   const floor = floorAt(here, girlH);
-  wet = stand.wet && !airborne;
-  if (airborne || girlH > floor + 0.45) {           // in the air: gravity until she lands
+  wet = stand.wet && !airborne && !gear.floating;
+  if (gear.floating) {   // bobbing gently on the water
+    girlH = world.lake.water - 0.05 + Math.sin(t * 2.2) * 0.06;
+    floatRing.root.scale.setScalar(Math.min(1, floatRing.root.scale.x + dt * 5));
+    floatRing.root.rotation.set(Math.sin(t * 1.7) * 0.05, 0, Math.sin(t * 1.3) * 0.06);
+    if (len > 0.1 && Math.random() < dt * 6) burst(here.clone().multiplyScalar(R + world.lake.water), 0xffffff, 2, 1.5, 0.35, 0.6);   // little ripples
+  } else if (airborne || girlH > floor + 0.45) {           // in the air: gravity until she lands
     airborne = true;
     vy -= GRAVITY * dt; girlH += vy * dt;
     if (girlH <= floor && vy <= 0) {
@@ -1032,7 +1140,32 @@ function updatePlayer(dt, t) {
   girl.root.quaternion.copy(pq).multiply(tq.setFromAxisAngle(AY, faceYaw));
   walkAmt = lerp(walkAmt, len > 0.05 ? 1 : 0, 0.15);
   const pulling = nearChicken && nearChicken.userData.pull > 0.02;
-  animateCharacter(girl, t, walkAmt, pulling ? 'pull' : actionPose ? actionPose.pose : airborne ? 'jump' : 'walk');
+  const pose = pulling ? 'pull' : actionPose ? actionPose.pose : gear.floating ? 'sit' : airborne ? 'jump' : 'walk';
+  animateCharacter(girl, t, walkAmt, pose);
+  if (gear.floating) girl.rig.position.y = 0.05;   // sitting in the ring
+  // holding things: that arm stays up (unless she needs both hands), and the holder cancels its tilt
+  const holding = pose === 'walk' || pose === 'jump' || pose === 'sit';
+  for (const [k, sh, hold] of [['wand', girl.parts.shR, wandHolder], ['parasol', girl.parts.shL, parasolHolder]]) {
+    if (!gear[k]) continue;
+    if (holding) sh.rotation.set(ARM[k][0] + Math.sin(t * 2 + (k === 'wand' ? 0 : 1)) * 0.03, 0, ARM[k][1]);
+    if (k === 'wand' && holding) sh.rotation.set(-2.6, 0, -0.25);   // raised high, sending the star up
+    hold.rotation.set(-sh.rotation.x, 0, -sh.rotation.z);
+  }
+  updateStar(dt, t);
+  const night = 1 - clamp((sun.intensity - 0.75) / 1.2, 0, 1);   // the glow matters most after dark
+  const lit = starFx.phase === 'on' ? 1 : starFx.phase === 'rise' ? clamp(starFx.t / 1.6, 0, 1) : 0;
+  wandLight.intensity = lerp(wandLight.intensity, lit * (3 + 9 * night), 1 - Math.exp(-dt * 4));
+  // "O" prompt at the lagoon's edge (or to hop off near the shore)
+  let fh = '';
+  if (state === 'play' && !modalOpen && !introLock && !airborne) {
+    if (!gear.floating && here.angleTo(world.lake.c) < world.lake.r * 1.5 && (onLagoon(here) || stepToward(here, 1, 2.5 / R, onLagoon))) fh = 'on';
+    else if (gear.floating && stepToward(here, -1, 2.5 / R, d => !world.standHeight(d).wet)) fh = 'off';
+  }
+  if (fh !== floatHint) {
+    floatHint = fh;
+    $('btnFloat').classList.toggle('hidden', !fh);
+    if (fh) $('btnFloat').innerHTML = fh === 'on' ? '🛟 <b>O</b> sit on the float' : '🛟 <b>O</b> hop off';
+  }
   if (nearChicken) $('pullFill').style.width = `${Math.round(nearChicken.userData.pull * 100)}%`;
 
   // camera follows behind & above, always looking the same way
@@ -1581,6 +1714,8 @@ function startFinale() {
   if (!statue.giant) wakeStatue();
   wantedTrack = null; music?.stop(3);
   state = 'finale';
+  gear.wand = gear.parasol = gear.floating = false; wandHolder.visible = parasolHolder.visible = floatRing.root.visible = sky1.visible = false; wandLight.intensity = 0; starFx.phase = 'off';
+  $('btnFloat').classList.add('hidden');
   $('hud').classList.add('hidden');   // the finale is a cinematic: no HUD
   $('joystick').classList.add('hidden'); $('btnJump').classList.add('hidden');
   arrowPivot.visible = false;

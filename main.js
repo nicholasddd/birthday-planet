@@ -1495,6 +1495,19 @@ if (DEBUG) {
 }
 
 // ============================================================ input
+// Left alone for 30 minutes, the camera drifts out to a slow view of the whole planet ("away" mode).
+// Any key or click brings it back down to her; that first key is swallowed so she doesn't jump or move.
+const AWAY_AFTER = 30 * 60 * 1000;
+let lastInput = performance.now(), away = false;
+function wakeUp() {
+  away = false; lastInput = performance.now();
+  dive = { from: camera.position.clone(), look: camLook.clone(), up: camera.up.clone() }; diveUntil = lastT + DIVE;
+}
+for (const ev of ['keydown', 'pointerdown', 'wheel']) addEventListener(ev, e => {
+  lastInput = performance.now();
+  if (away) { e.preventDefault(); e.stopImmediatePropagation(); wakeUp(); }
+}, { capture: true, passive: false });
+if (DEBUG) window.__away = () => { lastInput -= AWAY_AFTER + 1000; };
 const keys = {};
 // buttons drop focus after a click, so SPACE never re-presses them by accident
 addEventListener('click', e => e.target.closest?.('button')?.blur(), true);
@@ -1767,6 +1780,15 @@ function updatePlayer(dt, t) {
     camera.position.lerp(V(Math.sin(a) * 66, 26, Math.cos(a) * 66), 1 - Math.exp(-dt * 2));
     camLook.lerp(V(0, 2, 0), 1 - Math.exp(-dt * 2));
     camera.up.lerp(AY, 0.1).normalize();
+    camera.lookAt(camLook);
+    return;
+  }
+  if (!away && state === 'play' && !modalOpen && performance.now() - lastInput > AWAY_AFTER) away = true;
+  if (away) {   // drifting slowly around the whole planet until she comes back
+    const a = t * 0.03;
+    camera.position.lerp(V(Math.sin(a) * 70, 24, Math.cos(a) * 70), 1 - Math.exp(-dt * 0.35));
+    camLook.lerp(V(0, 2, 0), 1 - Math.exp(-dt * 0.5));
+    camera.up.lerp(AY, 1 - Math.exp(-dt * 0.5)).normalize();
     camera.lookAt(camLook);
     return;
   }

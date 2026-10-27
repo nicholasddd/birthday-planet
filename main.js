@@ -997,7 +997,7 @@ function enterPostGame() {
 let boyStar = null;
 function updateBerryPal(dt, t) {
   if (!postGame || state !== 'play') return;
-  const me = AY.clone().applyQuaternion(pq), him = AY.clone().applyQuaternion(berryPal.q), d = me.angleTo(him) * R;
+  const me = herBody(), him = AY.clone().applyQuaternion(berryPal.q), d = me.angleTo(him) * R;   // (her body, so he never lies on top of her)
   const inWater = world.standHeight(him).wet;
   berryPal.moving = d > (gear.floating ? 2.8 : 2.4);
   if (berryPal.moving) {
@@ -2053,7 +2053,8 @@ function updateChickens(dt, t) {
         if (r.t < dt * 1.5) burst(r.group.localToWorld(V(0, 1.9, 0)), 0xffffff, 3, 1.5, 0.55, 1.2, heartTex, false);
         if (r.t > 0.84) { r.mode = 'approach'; r.t = 0; }
       } else if (r.mode === 'approach') {         // waddle over to her
-        if (toGirl > 1.35 && r.t < 5) {
+        const reach = herPose === 'stargaze' ? 2.0 : herPose === 'sit' || herPose === 'eat' ? 1.6 : 1.35;   // lying/sitting take up more room
+        if (r.group.position.distanceTo(herBody().multiplyScalar(R)) > reach && r.t < 5) {
           // head straight for her; squeeze past trees when close, otherwise side-step around them
           // (the stone stage is solid: if she's up there, it waits at the edge and cuddles from there)
           const od = AY.clone().applyQuaternion(r.q);
@@ -2246,7 +2247,10 @@ function updateChickens(dt, t) {
 // Ones that are settled (at the waterhole, handing over a letter, eating) hold their spot and the other steps aside.
 const ROAMER_GAP = 1.3;
 // she can't walk through a chouchou either (only checked for ones near the ground, and not when she's jumping over)
-const girlGap = r => (r.mode === 'float' ? 0.95 : 0.6) + (gear.floating ? 1.2 : 0.6);
+const girlGap = r => (r.mode === 'float' ? 0.95 : 0.6) + (gear.floating ? 1.2 : herPose === 'stargaze' ? 1.25 : herPose === 'sit' || herPose === 'eat' ? 0.85 : 0.6);
+// where her body actually is: lying back, it stretches out behind her feet; sitting, a little behind them
+const herBody = () => herPose === 'stargaze' ? girl.root.localToWorld(V(0, 0, -1.0)).normalize()
+  : herPose === 'sit' || herPose === 'eat' ? girl.root.localToWorld(V(0, 0, -0.15)).normalize() : AY.clone().applyQuaternion(pq);
 function bumpsChouchou(od, nd) {
   if (girlH > world.standHeight(nd).h + 1.1) return false;   // sailing over them mid-jump
   for (const r of roamers) {
@@ -2285,7 +2289,7 @@ function separateRoamers() {
   }
   // and nobody walks (or floats) into her: they're nudged out of her way
   if (state === 'play' && girlH < world.standHeight(AY.clone().applyQuaternion(pq)).h + 1.1) {
-    const me = AY.clone().applyQuaternion(pq);
+    const me = herBody();
     for (const r of live) {
       if (fixed(r) && r.mode !== 'present') continue;
       _sa.copy(AY).applyQuaternion(r.q);

@@ -17,6 +17,8 @@ import { DEMO_CONFIG } from './demo.js';
 // DEMO (?demo): a ten-minute taste for friends and strangers — 3 chouchous, a whole day squeezed into
 // ten minutes, its own words (nothing personal), and its own progress kept per browser tab.
 const DEMO = new URLSearchParams(location.search).has('demo');
+// CINEMA (?cinema&shot=name): films one prepared shot for the Instagram reel (no UI, best quality, scripted camera)
+const CINEMA = new URLSearchParams(location.search).has('cinema'), SHOT = new URLSearchParams(location.search).get('shot') || '';
 if (DEMO) Object.assign(CONFIG, DEMO_CONFIG);
 const THAI = DEMO ? DEMO_CONFIG.lettersTh : LETTERS_TH, SIGN = DEMO ? { en: DEMO_CONFIG.signEn, th: DEMO_CONFIG.signTh } : { en: 'With all my love,', th: SIGN_TH };
 import { makeFireflies, makeButterflies, makeRain, makeRainbow, makeBottle, zTex, noteTex } from './life.js';
@@ -36,7 +38,7 @@ const $ = id => document.getElementById(id);
 
 // progress is remembered in this browser; the demo keeps its own, per tab, so every visit starts fresh
 const store = (() => {
-  const S = () => (DEMO ? sessionStorage : localStorage), pre = DEMO ? 'demo:' : '';
+  const S = () => (DEMO || CINEMA ? sessionStorage : localStorage), pre = DEMO ? 'demo:' : CINEMA ? 'cine:' : '';
   return {
     get(k) { try { return S().getItem(pre + k); } catch { return null; } },
     set(k, v) { try { S().setItem(pre + k, v); } catch {} },
@@ -45,7 +47,20 @@ const store = (() => {
 
 // ============================================================ time + progress
 const params = new URLSearchParams(location.search);
-const DEBUG = params.has('debug');
+const DEBUG = params.has('debug') || CINEMA;
+if (CINEMA) {   // every filmed shot starts from a clean, prepared save
+  for (const k of Object.keys(sessionStorage)) if (k.startsWith('cine:')) sessionStorage.removeItem(k);
+  const all = [...Array(24).keys()];
+  const P = ['glow_find', 'pull'].includes(SHOT) ? { pulled: all.slice(0, 23), collected: all.slice(0, 23) }
+    : SHOT === 'finale_full' ? { pulled: all, collected: all }
+    : SHOT === 'post' ? { pulled: all, collected: all, done: 1 }
+    : { pulled: all, collected: all.slice(0, 23) };
+  store.set('bday-pulled', JSON.stringify(P.pulled)); store.set('bday-collected', JSON.stringify(P.collected));
+  for (const k of ['bday-unlocked', 'bday-hint-ack', 'bday-first-seen', 'bday-name-hint']) store.set(k, '1');
+  if (P.done) store.set('bday-done', '1');
+  store.set('bday-bottle', JSON.stringify({ spot: 0, at: 9e15 }));   // no bottles in the shots
+  document.documentElement.classList.add('cinema');
+}
 let timeOffset = DEBUG ? Number(store.get('bday-offset') || 0) : 0;
 let startMs = new Date(CONFIG.startTime).getTime();
 let openMs = new Date(CONFIG.openTime || CONFIG.startTime).getTime();   // the waiting page ends here
@@ -53,6 +68,7 @@ if (DEMO) {   // a 10-second countdown from arriving; the first chouchou 30 s af
   openMs = Number(store.get('open')) || Date.now() + 10000; store.set('open', String(openMs));
   startMs = Number(store.get('start')) || Infinity;
 }
+if (CINEMA) timeOffset = startMs + 23.6 * HOUR - Date.now();   // all 24 chouchous have arrived
 const now = () => Date.now() + timeOffset;
 const unlockTime = i => startMs + i * SLOT;
 function unlockedCount() {
@@ -3030,6 +3046,7 @@ const SPACE = [
   { top: 0x120626, bottom: 0x3f1a5e, a: 0xe05ab0, b: 0xffc070, neb: 0.68 },    // galaxy plum: magenta and gold
 ].map(P => ({ top: new THREE.Color(P.top), bottom: new THREE.Color(P.bottom), a: new THREE.Color(P.a), b: new THREE.Color(P.b), neb: P.neb }));
 let skySnap = true;   // jump straight to the right look on the first frame
+let cineCam = null;   // cinema mode: a scripted camera that overrides the game's
 function updateSky(dt) {
   const nk = skySnap ? 1 : 1 - Math.exp(-dt * 0.6), u = sky.material.uniforms;
   const h = hourOfDay(), dayT = clamp((h - 6) / 12, 0, 1);
@@ -3121,6 +3138,7 @@ function step(dt, t) {
   sky.position.copy(camera.position);
   sky.material.uniforms.uUp.value.copy(camera.up);
   scene.fog.color.copy(sky.material.uniforms.uBottom.value);
+  if (cineCam) cineCam(dt, t);
   if (DEBUG && window.__cam) { camera.position.copy(window.__cam.pos); camera.up.copy(window.__cam.pos).normalize(); camera.lookAt(window.__cam.look); }   // debug: hold the camera on a spot
   composer.render();
 }
@@ -3153,3 +3171,151 @@ if (store.get('bday-done') === '1') enterPostGame();
 updateTimeUI();
 setInterval(() => { syncChickens(); updateTimeUI(); }, 1000);
 frame();
+
+// ============================================================ cinema mode: films one shot for the reel
+// Open with ?cinema&shot=<name> in a 1080×1920 viewport. The shot is set up, recorded (H.264 MP4 if the browser
+// can, else WebM) and uploaded to the local preview server, which saves it in reel/clips/.
+if (CINEMA) setTimeout(runCinema, 600);
+async function runCinema() {
+  const sleep = ms => new Promise(r => setTimeout(r, ms));
+  // best quality, fixed 1:1 pixels (the viewport is the final 1080×1920), and nothing that isn't the world
+  quality.level = 0; quality.settle = Infinity; renderer.setPixelRatio(1); composer.setPixelRatio(1); composer.setSize(innerWidth, innerHeight);
+  arrowPivot.traverse(o => o.layers.disable(0)); wishBubble.layers.disable(0); nameLabel.layers.disable(0);
+  const setHour = h => { skyHourOverride = h; skySnap = true; };
+  const up = () => AY.clone().applyQuaternion(pq), fwd = () => V(0, 0, 1).applyQuaternion(pq), right = () => V(1, 0, 0).applyQuaternion(pq);
+  const her = () => girl.root.position.clone();
+  const faceDir = (d, target) => {   // stand at direction d, facing toward target direction
+    pq.setFromUnitVectors(AY, d);
+    const f = V(0, 0, 1).applyQuaternion(pq), to = target.clone().addScaledVector(d, -target.dot(d)).normalize();
+    pq.premultiply(new THREE.Quaternion().setFromAxisAngle(d, Math.atan2(V().crossVectors(f, to).dot(d), f.dot(to))));
+    faceYaw = faceTarget = 0;
+  };
+  const place = (d, target) => { faceDir(d, target || d.clone().applyAxisAngle(AX, 0.3)); girlH = world.standHeight(d).h; vy = 0; airborne = false; };
+  const putRoamer = (r, d, yaw = Math.random() * 6) => { r.q.setFromUnitVectors(AY, d).multiply(new THREE.Quaternion().setFromAxisAngle(AY, yaw)); placeRoamer(r); };
+  const around = (d, dist, ang) => {   // a direction `dist` units from d, at angle `ang` round it
+    const e1 = V().crossVectors(d, Math.abs(d.y) < 0.9 ? AY : AX).normalize(), e2 = V().crossVectors(d, e1);
+    const a = dist / R, dir = e1.multiplyScalar(Math.cos(ang)).addScaledVector(e2, Math.sin(ang));
+    return d.clone().multiplyScalar(Math.cos(a)).addScaledVector(dir, Math.sin(a)).normalize();
+  };
+  const freeRoamers = n => roamers.filter(r => r.mode === 'roam' || r.mode === 'toNap' || r.mode === 'watch' || r.mode === 'chase').slice(0, n);
+  let camFn = null, t0 = 0, dur = 8, onTick = null;
+  cineCam = (dt, t) => {
+    if (onTick) onTick(dt, (performance.now() - t0) / 1000);
+    if (!camFn) return;
+    const u = clamp((performance.now() - t0) / (dur * 1000), 0, 1), c = camFn(u);
+    camera.position.copy(c.pos); camera.up.copy(c.up || c.pos.clone().normalize()); camera.lookAt(c.look);
+  };
+  const start = () => { $('btnStart').click(); diveUntil = 0; dive = null; };
+  const meadow = openSpots(6, 919, 6);
+  const clearRun = () => {   // a spot and heading with open ground 10 units ahead and 12 behind
+    for (const d of openSpots(60, 4242, 2)) for (let k = 0; k < 16; k++) {
+      faceDir(d, d.clone().applyAxisAngle(AX, 0.3)); pq.premultiply(new THREE.Quaternion().setFromAxisAngle(d, k * Math.PI / 8));
+      const f = fwd();
+      let ok = true;
+      for (let s = -10; s <= 9 && ok; s += 1) { const p = d.clone().addScaledVector(f, s / R).normalize(); if (world.standHeight(p).wet || obstacles.some(o => o.dir.angleTo(p) * R < o.rad + 1.3)) ok = false; }
+      if (ok) return { d, k };
+    }
+    console.warn('no clear run found'); place(meadow[0]); return { d: meadow[0], k: 0 };
+  };
+
+  // ---------------------------------------------------------------- the shots
+  const SHOTS = {
+    hero_orbit: async () => { start(); setHour(17.3); dur = 10;   // the whole planet at golden hour, slowly turning
+      camFn = u => { const a = 0.4 + u * 0.7; return { pos: V(Math.sin(a) * 78, 16 + u * 6, Math.cos(a) * 78), look: V(0, 1, 0), up: AY }; }; },
+    night_orbit: async () => { start(); setHour(23.2); dur = 10;   // the planet under the stars, a shooting star or two
+      onTick = (dt, s) => { if ((s > 1.5 && s < 1.6) || (s > 6 && s < 6.1)) shoot.wait = 0; };
+      camFn = u => { const a = 2.2 + u * 0.6; return { pos: V(Math.sin(a) * 74, 22 - u * 4, Math.cos(a) * 74), look: V(0, 2, 0), up: AY }; }; },
+    dive: async () => { setHour(8.4); dur = 6; await sleep(2500); t0 = performance.now(); $('btnStart').click(); },   // the swoop down to her
+    glow_find: async () => { start(); setHour(22); dur = 7;   // walking toward a glowing beam at night
+      const b = buried.values().next().value, bd = b.position.clone().normalize();
+      place(around(bd, 9, 1.2), bd); onTick = (dt, s) => { keys.KeyW = s < dur - 0.3 && her().distanceTo(b.position) > 3.2; }; },
+    pull: async () => { start(); setHour(21.5); dur = 7;   // spamming SPACE: the pull close-up and the pop
+      const b = buried.values().next().value, bd = b.position.clone().normalize();
+      place(around(bd, 2, 2.0), bd); let k = 0;
+      onTick = (dt, s) => { if (s > 0.8 && s < 4.5 && (k += dt) > 0.11) { k = 0; if (nearChicken) pullPress(); } };
+      camFn = u => { const m = her().lerp(b.position, 0.5), n = m.clone().normalize(), away = b.position.clone().sub(her()).normalize(), side = V().crossVectors(n, away).normalize();
+        return { pos: b.position.clone().addScaledVector(away, 3.6 - u * 0.6).addScaledVector(side, 2.2).addScaledVector(n, 2.0), look: m.clone().addScaledVector(n, 0.9) }; }; },
+    cuddle: async () => { start(); setHour(17.4); dur = 8;   // chouchous rushing over for cuddles at golden hour
+      const d = meadow[0]; place(d); await sleep(100);
+      freeRoamers(4).forEach((r, k) => { putRoamer(r, around(d, 5, k * 1.6 + 0.4)); r.armed = true; r.mode = 'roam'; r.pause = 0.3; });
+      camFn = u => { const a = 0.7 + u * 0.9, p = her(); return { pos: p.clone().addScaledVector(right(), Math.cos(a) * 6.5).addScaledVector(fwd(), Math.sin(a) * 6.5).addScaledVector(up(), 3.0), look: p.clone().addScaledVector(up(), 0.6) }; }; },
+    lagoon_float: async () => { start(); setHour(14.6); dur = 9;   // her on the float, chouchous lounging in sunglasses
+      WATER_SPOTS.forEach(sp => { sp.taken = null; });
+      const fr = freeRoamers(7); WATER_SPOTS.forEach((sp, k) => { if (fr[k]) sendToWater(fr[k], sp, true); });
+      const c = world.lake.c, d = around(c, world.lake.r * R * 0.35, 0.5);
+      place(d, c); gear.floating = true; floatRing.root.visible = true; floatRing.root.scale.setScalar(1);
+      camFn = u => { const a = 2.4 + u * 1.0, p = her(); return { pos: p.clone().addScaledVector(right(), Math.cos(a) * 6).addScaledVector(fwd(), Math.sin(a) * 6).addScaledVector(up(), 1.5), look: p.clone().addScaledVector(up(), 0.4) }; }; },
+    rain_huddle: async () => { start(); setHour(13); dur = 8;   // a shower: chouchous huddled under a tree, her with her parasol
+      weather.phase = 'rain'; weather.t = 0; weather.rain = 1; planShelters();
+      const groups = new Map();
+      for (const r of roamers) if (r.shelter) { putRoamer(r, r.shelter); r.mode = 'shelter'; if (!groups.has(r.tree)) groups.set(r.tree, []); groups.get(r.tree).push(r); }
+      const [tree, list] = [...groups].sort((a, b) => b[1].length - a[1].length)[0];
+      const c = list.reduce((a, r) => a.add(r.group.position), V()).multiplyScalar(1 / list.length), cd = c.clone().normalize();
+      const out = c.clone().sub(tree.dir.clone().multiplyScalar(c.length())).normalize();
+      const sideV = V().crossVectors(cd, out).normalize();
+      place(cd.clone().addScaledVector(out, 2.2 / R).addScaledVector(sideV, -3.6 / R).normalize(), cd); toggleGear('parasol');
+      camFn = u => ({ pos: c.clone().addScaledVector(out, 8.5 - u * 2.5).addScaledVector(cd, 2.2).addScaledVector(V().crossVectors(cd, out).normalize(), 2.5), look: c.clone().addScaledVector(cd, 1.1) }); },
+    rainbow: async () => { start(); setHour(15.2); dur = 7;   // after the rain
+      weather.phase = 'after'; weather.t = 3; rainbow.material.opacity = 0.75;
+      place(meadow[1]);
+      camFn = u => { const p = her(); return { pos: p.clone().addScaledVector(fwd(), -5.5 + u * 1.5).addScaledVector(up(), 2.0), look: p.clone().addScaledVector(fwd(), 12).addScaledVector(up(), 4.5) }; }; },
+    night_star: async () => { start(); setHour(22.6); dur = 9;   // the star rising above her, fireflies by the lagoon
+      const c = world.lake.c, d = around(c, world.lake.r * R * 1.25, 2.0); place(d, c);
+      onTick = (dt, s) => { roamers.forEach(r => { r.armed = false; }); if (s > 0.6 && starFx.phase === 'off' && !onTick.done) { onTick.done = true; toggleGear('wand'); } };
+      camFn = u => { const p = her(); return { pos: p.clone().addScaledVector(fwd(), 5.2 - u).addScaledVector(up(), 1.8).addScaledVector(right(), 1.8), look: p.clone().addScaledVector(up(), 2.0 + u * 1.0) }; }; },
+    naps: async () => { start(); setHour(23.6); dur = 7;   // sleepy chouchous, little z's
+      const d = NAP_SPOTS[0]; freeRoamers(5).forEach((r, k) => { putRoamer(r, around(d, 1.3 + (k % 2) * 0.4, k * 1.25)); r.mode = 'sleep'; });
+      place(around(d, 9, 0));
+      camFn = u => ({ pos: d.clone().multiplyScalar(R + 2.2).addScaledVector(around(d, 1, 0.3).sub(d).normalize(), 6.5 - u * 2), look: d.clone().multiplyScalar(R + 0.8) }); },
+    dance: async () => { start(); setHour(17.8); dur = 9;   // dancing on the stone stage, chouchous bopping along
+      const sd = world.stage.dir;
+      for (const r of roamers) if (['excited', 'approach', 'cuddle'].includes(r.mode)) { r.mode = 'roam'; r.armed = false; putRoamer(r, around(sd, world.stage.r + 6 + Math.random() * 4, Math.random() * 6)); }
+      freeRoamers(6).forEach((r, k) => { putRoamer(r, around(sd, world.stage.r + 1.8, k * 1.05)); r.mode = 'roam'; r.pause = 3; });
+      onTick = (dt, s) => {
+        roamers.forEach(r => { r.armed = false; if (['excited', 'approach', 'cuddle'].includes(r.mode)) { r.mode = dancing > 0 ? 'dance' : 'roam'; r.danceT = 8; r.ch.root.rotation.set(0, 0, 0); r.ch.root.scale.setScalar(1); } });
+        if (s > 0.4 && !onTick.done) { onTick.done = true; startDance(); }
+      };
+      onTick.f0 = fwd(); onTick.r0 = right(); onTick.p0 = her();
+      camFn = u => { const a = Math.PI - 0.5 + u * 1.0, p = onTick.p0;
+        return { pos: p.clone().addScaledVector(onTick.f0, Math.cos(a) * 6.5).addScaledVector(onTick.r0, Math.sin(a) * 6.5).addScaledVector(p.clone().normalize(), 4.6), look: p.clone().addScaledVector(p.clone().normalize(), 0.6) }; }; },
+    follow: async () => { start(); setHour(9.3); dur = 9;   // a whistle, and a line of chouchous trotting after her
+      { const c = clearRun(); girlH = world.standHeight(c.d).h; vy = 0; airborne = false; }   // (pq already faces the clear way)
+      await sleep(100);
+      freeRoamers(6).forEach((r, k) => putRoamer(r, up().applyAxisAngle(right(), -(2 + k * 1.7) / R), 0));   // in a line behind her
+      whistle();
+      onTick = (dt, s) => { keys.KeyW = s > 0.8 && s < dur - 0.2; };
+      camFn = u => { const p = her(); return { pos: p.clone().addScaledVector(up(), 10.5).addScaledVector(fwd(), 4.5).addScaledVector(right(), 2.5), look: p.clone().addScaledVector(fwd(), -3.5) }; }; },   // drone view: the line trailing behind her
+    post: async () => { start(); setHour(10.6); dur = 9;   // afterwards: the two of them, parasols up, chouchous around
+      place(meadow[3]); await sleep(300); toggleGear('parasol');
+      onTick = (dt, s) => { keys.KeyW = s > 1 && s < dur - 0.5; };
+      camFn = u => { const p = her(); return { pos: p.clone().addScaledVector(fwd(), 8.5).addScaledVector(up(), 2.6).addScaledVector(right(), -0.8), look: p.clone().addScaledVector(up(), 1).addScaledVector(fwd(), -1.6).addScaledVector(right(), -0.6) }; }; },
+    finale_full: async () => { start(); setHour(12); dur = 110;   // the whole ending, auto-played (cut it up in the edit)
+      let wait = 0;
+      onTick = (dt, s) => {
+        if (s > 0.8 && state === 'play' && !onTick.started) { onTick.started = true; startFinale(); }
+        const f = finale; if (!f) return;
+        if (f.phase === 'candles' && (wait += dt) > 0.12) { wait = 0; blowPress(); }
+        if (f.phase === 'awaitCut') { if ((wait += dt) > 1.4) { wait = 0; finaleAction(); } }
+        if (f.phase === 'beanWait') { if ((wait += dt) > 2.2) { wait = 0; openBean(); } }
+        if (f.ended && !onTick.endAt) { onTick.endAt = s; closeOverlay('ending'); }
+        if (onTick.endAt && s > onTick.endAt + 14) dur = 0;   // stop 14 s into the orbit
+      }; },
+  };
+
+  if (!SHOTS[SHOT]) { document.title = 'NO SHOT ' + SHOT; return; }
+  t0 = performance.now();
+  await SHOTS[SHOT]();
+  if (SHOT !== 'dive') { await sleep(1200); t0 = performance.now(); }   // let things settle, then roll
+  // record
+  const stream = renderer.domElement.captureStream(30);
+  const mime = MediaRecorder.isTypeSupported('video/mp4;codecs=avc1.640028') ? 'video/mp4;codecs=avc1.640028' : 'video/webm;codecs=vp9';
+  const rec = new MediaRecorder(stream, { mimeType: mime, videoBitsPerSecond: 20e6 }), chunks = [];
+  rec.ondataavailable = e => { if (e.data.size) chunks.push(e.data); };
+  rec.start(500);
+  while ((performance.now() - t0) / 1000 < dur) await sleep(100);
+  rec.stop(); await new Promise(r => { rec.onstop = r; });
+  keys.KeyW = keys.KeyA = false;
+  const blob = new Blob(chunks, { type: mime.split(';')[0] });
+  await fetch(`/upload?name=${SHOT}.${mime.includes('mp4') ? 'mp4' : 'webm'}`, { method: 'POST', body: blob });
+  document.title = 'DONE ' + SHOT + ' ' + Math.round(blob.size / 1024) + 'KB';
+}

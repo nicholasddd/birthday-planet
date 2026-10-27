@@ -1747,9 +1747,14 @@ function updatePlayer(dt, t) {
   if (canMove) {
     mz = (keys.KeyW || keys.ArrowUp ? 1 : 0) - (keys.KeyS || keys.ArrowDown ? 1 : 0) - joy.y;
     mx = (keys.KeyA ? 1 : 0) - (keys.KeyD ? 1 : 0) - joy.x;
-    // ← / → orbit the camera around her (she keeps facing the same way)
+    // ← / → orbit the camera around her (she keeps facing the same way). The camera swings with
+    // the turn in the same frame, so "up the screen" and W never drift apart while turning.
     const look = (keys.ArrowLeft ? 1 : 0) - (keys.ArrowRight ? 1 : 0);
-    if (look) { const a = look * 2.2 * dt; pq.multiply(tq.setFromAxisAngle(AY, a)); faceYaw -= a; faceTarget -= a; }
+    if (look) {
+      const a = look * 2.2 * dt, up = AY.clone().applyQuaternion(pq);
+      pq.multiply(tq.setFromAxisAngle(AY, a)); faceYaw -= a; faceTarget -= a;
+      camera.position.applyAxisAngle(up, a); camLook.applyAxisAngle(up, a); camera.up.applyAxisAngle(up, a);
+    }
   }
   let len = Math.hypot(mx, mz);
   if (len > 1) { mx /= len; mz /= len; len = 1; }

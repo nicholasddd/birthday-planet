@@ -588,5 +588,5 @@ export function buildPlanet(seed = 1) {
     i++;
   }
 
-  return { group, flowerDirs, obstacles, cloudPivot, placeOnSurface, standHeight, shadowAll, mounds, isDeep, lake: { c: lakeC, r: LAKE, beach: BEACH, water: WATER }, stage: { group: stage, dir: stageDir, r: STAGE_R, top: stageTop }, berryTrees, fruitI };
+  return { group, flowerDirs, obstacles, cloudPivot, placeOnSurface, standHeight, shadowAll, mounds, isDeep, lake: { c: lakeC, r: LAKE, beach: BEACH, water: WATER }, spring: river.src.clone(), springR: POND * R, stage: { group: stage, dir: stageDir, r: STAGE_R, top: stageTop }, berryTrees, fruitI };
 }

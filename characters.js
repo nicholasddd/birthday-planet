@@ -161,6 +161,28 @@ export function animateCharacter(ch, t, walk, pose = 'walk') {
     p.head.rotation.z = Math.sin(t * 1.3) * 0.08;
     return;
   }
+  if (pose === 'dance') {           // a happy little dance: arms waving in turn, bouncing, hips swaying
+    const b = Math.sin(t * 9);
+    p.shL.rotation.set(-0.3, 0, 2.2 + Math.sin(t * 4.5) * 0.6); p.shR.rotation.set(-0.3, 0, -2.2 + Math.sin(t * 4.5 + Math.PI) * 0.6);
+    p.hipL.rotation.x = Math.max(0, b) * -0.6; p.hipR.rotation.x = Math.max(0, -b) * -0.6;
+    ch.rig.position.y = Math.abs(b) * 0.18; ch.rig.rotation.z = Math.sin(t * 4.5) * 0.14; ch.rig.rotation.x = 0;
+    p.head.rotation.z = Math.sin(t * 4.5 + 1) * 0.15;
+    return;
+  }
+  if (pose === 'stretch') {         // arms up high, up on her toes: a big lazy stretch
+    for (const [k, s] of [['shL', 1], ['shR', -1]]) { p[k].rotation.z = lerp(p[k].rotation.z, s * 2.8, 0.08); p[k].rotation.x = lerp(p[k].rotation.x, 0, 0.08); }
+    p.hipL.rotation.x *= 0.8; p.hipR.rotation.x *= 0.8;
+    ch.rig.rotation.x = lerp(ch.rig.rotation.x, -0.12, 0.06); ch.rig.position.y = lerp(ch.rig.position.y, 0.05, 0.06);
+    p.head.rotation.z = Math.sin(t * 1.2) * 0.08;
+    return;
+  }
+  if (pose === 'stargaze') {        // lying back on the grass, looking up at the stars
+    for (const [k, s] of [['shL', 1], ['shR', -1]]) { p[k].rotation.z = lerp(p[k].rotation.z, s * 1.4, 0.05); p[k].rotation.x = lerp(p[k].rotation.x, 0.2, 0.05); }
+    p.hipL.rotation.x = lerp(p.hipL.rotation.x, 0.05 + Math.sin(t * 0.8) * 0.08, 0.05); p.hipR.rotation.x = lerp(p.hipR.rotation.x, -0.05, 0.05);
+    ch.rig.rotation.x = lerp(ch.rig.rotation.x, -1.42, 0.04); ch.rig.position.y = lerp(ch.rig.position.y, 0.3, 0.04);
+    p.head.rotation.z = Math.sin(t * 0.5) * 0.06;
+    return;
+  }
   if (pose === 'jump') {            // arms up, knees tucked
     for (const [k, s] of [['shL', 1], ['shR', -1]]) { p[k].rotation.z = lerp(p[k].rotation.z, s * 1.9, 0.25); p[k].rotation.x = lerp(p[k].rotation.x, 0, 0.25); }
     p.hipL.rotation.x = lerp(p.hipL.rotation.x, -0.7, 0.25); p.hipR.rotation.x = lerp(p.hipR.rotation.x, -0.5, 0.25);

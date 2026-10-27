@@ -51,6 +51,31 @@
   body.hint-on #btnAct { bottom: max(52px, calc(env(safe-area-inset-bottom) + 44px)); }
   #berryPill.bump { animation: bump .35s cubic-bezier(.2,1.6,.4,1); }
   @keyframes bump { 40% { scale: 1.25; } }
+  /* little prompts + cards for wishes, bottles, photos, names, dancing */
+  #btnWish { position: fixed; left: 50%; translate: -50% 0; top: 56px; z-index: 12; border-radius: 999px; padding: 5px 13px; font-size: 11.5px; font-weight: 600; animation: pop .35s cubic-bezier(.2,1.3,.4,1); }
+  #btnDance { position: fixed; left: 50%; translate: -50% 0; bottom: max(52px, calc(env(safe-area-inset-bottom) + 44px)); z-index: 12; border-radius: 999px; padding: 5px 12px; font-size: 11px; font-weight: 600; }
+  #wishCard { position: fixed; left: 50%; top: 20%; translate: -50% 0; z-index: 20; width: min(420px, calc(100vw - 32px)); padding: 14px 20px 16px; border-radius: 18px; text-align: center; pointer-events: none; opacity: 0; transform: translateY(10px); transition: opacity .8s ease, transform .8s ease; }
+  #wishCard.show { opacity: 1; transform: none; }
+  #wishCard .eyebrow { margin-bottom: 6px; }
+  #wishText { font-family: 'Gaegu', 'Mali', cursive; font-size: 21px; line-height: 1.3; color: var(--ink); }
+  #wishText.th { font-family: 'Mali', cursive; font-size: 17px; }
+  #bottleCard .card { width: min(400px, 100%); background: linear-gradient(170deg, #fffaf0, #fbefd6); }
+  #bottleText { font-family: 'Gaegu', 'Mali', cursive; font-size: 19px; line-height: 1.35; white-space: pre-line; color: #6b3d22; margin: 10px 0 4px; }
+  #bottleText.th { font-family: 'Mali', cursive; font-size: 15.5px; }
+  #bottleImg { display: block; max-width: 100%; max-height: 40vh; margin: 10px auto 0; border-radius: 8px; }
+  #bottleShelf { margin-top: 14px; display: flex; flex-wrap: wrap; gap: 6px; justify-content: center; }
+  #bottleShelf .eyebrow { width: 100%; margin-bottom: 2px; }
+  #bottleShelf button { border-radius: 999px; padding: 4px 10px; font-size: 11px; background: #fffaf0; border: 1px solid #ecd9b0; color: #6b3d22; }
+  #photoCard .card { width: min(520px, 100%); }
+  #photoImg { display: block; max-width: 100%; max-height: 62vh; margin: 4px auto 0; border-radius: 4px; box-shadow: 0 6px 20px rgba(60, 40, 30, .25); }
+  #flash { position: fixed; inset: 0; background: #fff; opacity: 0; pointer-events: none; z-index: 40; transition: opacity .5s ease; }
+  #flash.on { opacity: .85; transition: none; }
+  #nameInput { width: 100%; box-sizing: border-box; margin: 12px 0 4px; padding: 9px 12px; border-radius: 12px; border: 1px solid var(--line); font: 600 15px 'Quicksand', sans-serif; color: var(--ink); text-align: center; background: #fff; }
+  .slot .nm { font-size: 9.5px; color: var(--ink-soft); font-style: italic; }
+  .slot .rename { font-size: 10px; opacity: .55; cursor: pointer; padding: 0 4px; }
+  .slot .rename:hover { opacity: 1; }
+  .keys-guide.extra { display: grid; grid-template-columns: 1fr 1fr; gap: 8px 10px; margin-top: 10px; }
+  .keys-guide.extra .krow { grid-template-columns: 30px 1fr; gap: 8px; font-size: 11.5px; }
   #firstTimer { position: fixed; left: 50%; translate: -50% 0; bottom: 18px; z-index: 12; border-radius: 16px; padding: 7px 18px 6px; display: flex; flex-direction: column; align-items: center; pointer-events: none; }
   #firstTimer span { font-size: 9.5px; letter-spacing: .16em; text-transform: uppercase; color: var(--ink-soft); font-weight: 600; }
   #firstTimer b { font-family: 'Cormorant Garamond', serif; font-style: italic; font-size: 26px; line-height: 1.05; color: var(--ink); font-variant-numeric: tabular-nums; }
@@ -139,6 +164,7 @@
   p { line-height: 1.55; margin: 6px 0; font-size: 13.5px; color: var(--ink); }
   .eyebrow { font-size: 10.5px; letter-spacing: .14em; text-transform: uppercase; color: var(--ink-soft); font-weight: 600; }
   .actions { display: flex; flex-direction: column; align-items: center; gap: 6px; margin-top: 14px; }
+  a.btn { text-decoration: none; display: inline-block; }
   .btn { background: var(--rose); color: white; border-radius: 999px; padding: 9px 22px; font-size: 13.5px; font-weight: 600; box-shadow: 0 4px 12px rgba(201, 111, 147, .25); transition: background .2s; }
   .btn:hover { background: var(--rose-deep); }
   .btn.soft { background: transparent; color: var(--ink-soft); box-shadow: none; font-weight: 500; padding: 6px 16px; }
@@ -249,6 +275,10 @@
 <div id="toasts"></div>
 <button id="btnPull" class="glass bottom hidden"><span class="pc-text">Spam <b>SPACE</b> to pull 🥬</span><span class="pc-touch">Tap tap tap to pull 🥬</span><div class="track"><i id="pullFill"></i></div></button>
 <button id="btnAct" class="glass bottom hidden"></button>
+<button id="btnWish" class="glass hidden">🌠 <b>E</b> make a wish</button>
+<button id="btnDance" class="glass hidden">💃 <b>G</b> dance</button>
+<div id="wishCard" class="glass"><div class="eyebrow">🌠 a wish</div><div id="wishText"></div></div>
+<div id="flash"></div>
 <div id="firstTimer" class="glass hidden"><span>something is coming</span><b id="ftTime">60:00</b></div>
 <button id="btnFloat" class="glass hidden"></button>
 <button id="btnAsk" class="glass bottom hidden"><span class="pc-text">💌 <b>SPACE</b> to take his letter</span><span class="pc-touch">💌 Tap to take his letter</span></button>
@@ -332,10 +362,16 @@
       <div class="krow"><span class="kcaps"><span class="wasd"><kbd>W</kbd><span><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd></span></span></span><span>walk around</span></div>
       <div class="krow"><span class="kcaps"><kbd>←</kbd><kbd>→</kbd></span><span>look around</span></div>
       <div class="krow"><span class="kcaps"><kbd class="wide">space</kbd></span><span>jump — or do something, when there's something nearby</span></div>
-      <div class="krow"><span class="kcaps"><kbd>I</kbd></span><span>a glowing star wand, for the night</span></div>
-      <div class="krow"><span class="kcaps"><kbd>P</kbd></span><span>a parasol, for sunny days</span></div>
-      <div class="krow"><span class="kcaps"><kbd>O</kbd></span><span>a float, at the lagoon's edge</span></div>
       <div class="krow"><span class="kcaps"><kbd>📖</kbd></span><span>everything you've found, top right</span></div>
+    </div>
+    <div class="keys-guide extra">
+      <div class="krow"><kbd>I</kbd><span>star wand, for the night</span></div>
+      <div class="krow"><kbd>P</kbd><span>parasol, for sunny days</span></div>
+      <div class="krow"><kbd>O</kbd><span>a float, by the lagoon</span></div>
+      <div class="krow"><kbd>C</kbd><span>take a photo</span></div>
+      <div class="krow"><kbd>F</kbd><span>whistle… someone may follow</span></div>
+      <div class="krow"><kbd>G</kbd><span>dance, on the stone stage</span></div>
+      <div class="krow"><kbd>E</kbd><span>make a wish on a shooting star</span></div>
     </div>
     <div class="actions"><button class="btn" id="btnControlsOk">Let's explore</button></div>
   </div>
@@ -374,11 +410,38 @@
   </div>
 </div>
 
+<div id="bottleCard" class="overlay">
+  <div class="card">
+    <div class="eyebrow">🍾 a message in a bottle</div>
+    <h1 id="bottleTitle"></h1>
+    <img id="bottleImg" class="hidden" alt="" />
+    <div id="bottleText"></div>
+    <div class="actions"><button class="btn soft" id="btnCloseBottle">Close</button></div>
+  </div>
+</div>
+
+<div id="photoCard" class="overlay">
+  <div class="card">
+    <img id="photoImg" alt="Your photo" />
+    <div class="actions"><a class="btn" id="btnSavePhoto" download="birthday-planet.png">Save photo</a><button class="btn soft" id="btnClosePhoto">Close</button></div>
+  </div>
+</div>
+
+<div id="nameCard" class="overlay">
+  <div class="card">
+    <div class="big-emoji">🐣✏️</div>
+    <h1>Name this chouchou</h1>
+    <input id="nameInput" maxlength="16" placeholder="a cute name…" autocomplete="off" />
+    <div class="actions"><button class="btn" id="btnSaveName">Save</button><button class="btn soft" id="btnCancelName">Cancel</button></div>
+  </div>
+</div>
+
 <div id="catalogue" class="overlay">
   <div class="card">
     <h1 id="catTitle">Your chouchous</h1>
     <div id="catSummary"></div>
     <div id="grid"></div>
+    <div id="bottleShelf"></div>
     <div class="actions"><button class="btn soft" id="btnCloseCat">Close</button></div>
   </div>
 </div>

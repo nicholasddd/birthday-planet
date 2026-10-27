@@ -12,6 +12,7 @@ import { bake } from './perf.js';
 import { createMusic } from './music.js';
 import { makeStarWand, makeParasol, makeFloat } from './props.js';
 import { LETTERS_TH, SIGN_TH } from './letters-th.js';
+import { makeFireflies, makeButterflies, makeRain, makeRainbow, makeBottle, zTex, noteTex } from './life.js';
 
 // ============================================================ utils
 const TOTAL = 24;
@@ -463,6 +464,343 @@ function updateStatue(dt, t) {
   }
 }
 
+// ============================================================ life on the planet
+// Wishes on shooting stars, message bottles, rain + rainbow, fireflies, butterflies, the chouchous'
+// daily rhythm, follow-the-leader, dancing, names and photos. All cheap: a handful of draw calls in total.
+const isNightHour = h => h >= 21 || h < 5.5;
+const isDuskHour = h => h >= 17 && h < 18.7;
+// a few open meadow spots (deterministic), away from water, trees and the stage
+function openSpots(count, seed, minApart) {
+  const rng = mulberry32(seed), out = [];
+  for (let k = 0; k < 5000 && out.length < count; k++) {
+    const d = randDir(rng);
+    if (world.standHeight(d).wet || d.angleTo(world.lake.c) < world.lake.r * 1.5) continue;
+    if (obstacles.some(o => o.dir.angleTo(d) * R < o.rad + 2)) continue;
+    if (out.some(o => o.angleTo(d) * R < minApart)) continue;
+    out.push(d);
+  }
+  return out;
+}
+const NAP_SPOTS = openSpots(3, 501, 9);   // where the sleepy ones cuddle up at night
+// a little icon (z, ♪, sparkle) that drifts up and fades
+function floatIcon(pos, tex, size = 0.45, life = 2.2, rise = 0.6) {
+  const s = new THREE.Sprite(new THREE.SpriteMaterial({ map: tex, transparent: true, depthWrite: false }));
+  s.position.copy(pos); s.scale.setScalar(size); scene.add(s);
+  particles.push({ s, vel: pos.clone().normalize().multiplyScalar(rise).add(randDir(Math.random).multiplyScalar(0.12)), life, max: life, size });
+}
+// chouchou steering helpers
+function turnToward(r, worldPos, dt) {
+  const rel = worldPos.clone().sub(r.group.position).applyQuaternion(r.q.clone().invert());
+  r.q.multiply(tq.setFromAxisAngle(AY, Math.atan2(rel.x, rel.z) * Math.min(1, dt * 4))).normalize();
+}
+function walkToward(r, dir, speed, dt, arrive = 1) {
+  const od = AY.clone().applyQuaternion(r.q);
+  if (od.angleTo(dir) * R < arrive) return true;
+  turnToward(r, dir.clone().multiplyScalar(R), dt);
+  for (const side of [0, 0.9, -0.9, 1.6, -1.6]) {
+    const nq = r.q.clone().multiply(tq.setFromAxisAngle(AY, side)).multiply(tq.setFromAxisAngle(AX, (speed * dt) / R));
+    const nd = AY.clone().applyQuaternion(nq);
+    if (!blocked(od, nd, 0.4) && !world.standHeight(nd).wet) { r.q.copy(nq).multiply(tq.setFromAxisAngle(AY, -side)).normalize(); break; }
+  }
+  return false;
+}
+const hopAnim = (r, t, k = 0.16, f = 9) => { r.ch.root.position.y = Math.abs(Math.sin(t * f + r.phase)) * k; r.ch.root.rotation.set(0, 0, Math.sin(t * f + r.phase) * 0.1); };
+
+// ---------------------------------------------------------------- weather: now and then a soft rain shower, then a rainbow
+const weather = { phase: 'clear', t: 0, rain: 0, played: 0, next: 900 + Math.random() * 900 };
+const rain = makeRain(450); scene.add(rain.lines);
+const rainbow = makeRainbow(); scene.add(rainbow);
+const RAIN_TOP = new THREE.Color(0x56627a), RAIN_BOTTOM = new THREE.Color(0x9aa6b8);
+const ripples = Array.from({ length: 12 }, () => {
+  const m = new THREE.Mesh(new THREE.RingGeometry(0.12, 0.18, 20).rotateX(-Math.PI / 2), new THREE.MeshBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0, depthWrite: false }));
+  m.visible = false; m.userData.t = 9; planetGroup.add(m); return m;
+});
+const _rp = V(), _rup = V(), _rrt = V(), _rfw = V();
+let rainSound = null;
+function shelterFor(r) {   // the nearest leafy tree to huddle under
+  const me = AY.clone().applyQuaternion(r.q);
+  let best = null, bd = 14;
+  for (const o of obstacles) {
+    if (o.solid || o.top < 2.5 || o.rad > 2) continue;
+    const d = o.dir.angleTo(me) * R;
+    if (d < bd) { bd = d; best = o; }
+  }
+  if (!best) return null;
+  const ax = V().crossVectors(best.dir, me); if (ax.lengthSq() < 1e-9) return null;
+  return best.dir.clone().applyAxisAngle(ax.normalize(), (best.rad + 0.55) / R);
+}
+function updateWeather(dt, t) {
+  if (state === 'play') {
+    weather.played += dt; weather.t += dt;
+    if (weather.phase === 'clear' && weather.played > weather.next) { weather.phase = 'rain'; weather.t = 0; }
+    if (weather.phase === 'rain' && weather.t > 100) { weather.phase = 'after'; weather.t = 0; }
+    if (weather.phase === 'after' && weather.t > 60) { weather.phase = 'clear'; weather.t = 0; weather.next = weather.played + 1200 + Math.random() * 1200; }
+  }
+  const want = state === 'play' && weather.phase === 'rain' ? 1 : 0;
+  weather.rain = want ? Math.min(1, weather.rain + dt / 6) : Math.max(0, weather.rain - dt / 8);
+  // streaks falling around her
+  rain.lines.visible = weather.rain > 0.01;
+  rain.mat.opacity = weather.rain * 0.5;
+  if (rain.lines.visible) {
+    _rup.copy(AY).applyQuaternion(pq); _rrt.copy(AX).applyQuaternion(pq); _rfw.set(0, 0, 1).applyQuaternion(pq);
+    const c = girl.root.position, a = rain.lines.geometry.attributes.position;
+    rain.drops.forEach((d, i) => {
+      d.y -= 20 * dt;
+      if (d.y < -0.3) { d.x = (Math.random() - 0.5) * 30; d.z = (Math.random() - 0.5) * 30; d.y = 3 + Math.random() * 13; }
+      _rp.copy(c).addScaledVector(_rrt, d.x).addScaledVector(_rfw, d.z).addScaledVector(_rup, d.y);
+      a.setXYZ(i * 2, _rp.x, _rp.y, _rp.z); _rp.addScaledVector(_rup, 0.55); a.setXYZ(i * 2 + 1, _rp.x, _rp.y, _rp.z);
+    });
+    a.needsUpdate = true;
+    // ripples on the lagoon, if she's anywhere near it
+    if (girl.root.position.angleTo(world.lake.c) < (world.lake.r * 3) && Math.random() < dt * 14 * weather.rain) {
+      const m = ripples.find(x => x.userData.t > 1.2);
+      const d = world.lake.c.clone().applyAxisAngle(randDir(Math.random).cross(world.lake.c).normalize(), Math.random() * world.lake.r * 0.95);
+      if (m && world.standHeight(d).wet) { m.position.copy(d).multiplyScalar(R + world.lake.water + 0.02); m.quaternion.setFromUnitVectors(AY, d); m.userData.t = 0; m.visible = true; }
+    }
+    // a soft hiss of rain
+    if (actx && !rainSound) {
+      const len = actx.sampleRate * 2, buf = actx.createBuffer(1, len, actx.sampleRate), ch = buf.getChannelData(0);
+      for (let i = 0; i < len; i++) ch[i] = Math.random() * 2 - 1;
+      const src = actx.createBufferSource(), f = actx.createBiquadFilter(), g = actx.createGain();
+      src.buffer = buf; src.loop = true; f.type = 'bandpass'; f.frequency.value = 1400; f.Q.value = 0.6; g.gain.value = 0;
+      src.connect(f).connect(g).connect(actx.destination); src.start();
+      rainSound = g;
+    }
+  }
+  if (rainSound) rainSound.gain.setTargetAtTime(muted ? 0 : weather.rain * 0.05, actx.currentTime, 0.3);
+  for (const m of ripples) {
+    if (!m.visible) continue;
+    m.userData.t += dt; const k = m.userData.t / 1.2;
+    m.scale.setScalar(1 + k * 6); m.material.opacity = 0.55 * (1 - k);
+    if (k >= 1) m.visible = false;
+  }
+  // the rainbow, afterwards (in daylight)
+  const h = hourOfDay(), daylight = h > 6.5 && h < 17.5;
+  const rb = state === 'play' && weather.phase === 'after' && daylight && weather.t < 48 ? 0.75 : 0;
+  rainbow.material.opacity = lerp(rainbow.material.opacity, rb, 1 - Math.exp(-dt * 0.5));
+  rainbow.visible = rainbow.material.opacity > 0.01;
+  if (rainbow.visible) {
+    camera.getWorldDirection(_rp); _rp.addScaledVector(camera.up, -_rp.dot(camera.up)).normalize();
+    rainbow.position.copy(camera.position).addScaledVector(_rp, 120).addScaledVector(camera.up, 6);
+    rainbow.quaternion.copy(camera.quaternion); rainbow.scale.set(160, 160, 1);
+  }
+}
+
+// ---------------------------------------------------------------- fireflies around the lagoon at night
+const fireflies = makeFireflies(48, glowTex); planetGroup.add(fireflies.points);
+const ffData = (() => {
+  const rng = mulberry32(61), a = [];
+  for (let i = 0; i < fireflies.n; i++) {
+    const d = world.lake.c.clone().applyAxisAngle(randDir(rng).cross(world.lake.c).normalize(), rng() * world.lake.r * 1.8);
+    a.push({ d, h: Math.max(world.standHeight(d).h, world.lake.water) + 0.5 + rng() * 1.8, ph: rng() * 6, sp: 0.4 + rng() * 0.6 });
+  }
+  return a;
+})();
+function updateFireflies(t) {
+  const k = clamp((starsMat.opacity - 0.3) / 0.5, 0, 1) * (1 - weather.rain);
+  fireflies.points.visible = k > 0.01;
+  if (!fireflies.points.visible) return;
+  fireflies.mat.opacity = k * (0.75 + 0.25 * Math.sin(t * 2.3));
+  const pos = fireflies.points.geometry.attributes.position;
+  ffData.forEach((f, i) => {
+    _rp.copy(f.d).multiplyScalar(R + f.h + Math.sin(t * f.sp + f.ph) * 0.4);
+    pos.setXYZ(i, _rp.x + Math.sin(t * 0.5 * f.sp + f.ph * 2) * 0.8, _rp.y + Math.sin(t * 0.3 + f.ph) * 0.3, _rp.z + Math.cos(t * 0.4 * f.sp + f.ph) * 0.8);
+  });
+  pos.needsUpdate = true;
+}
+
+// ---------------------------------------------------------------- butterflies over the meadows by day
+const butterflies = makeButterflies(10); planetGroup.add(butterflies.left, butterflies.right);
+const bfData = openSpots(10, 733, 5).map((d, i) => {
+  const t1 = V().crossVectors(d, V(0.3, 1, 0.2).normalize()).normalize(), t2 = V().crossVectors(d, t1);
+  return { d, t1, t2, ph: i * 1.7, r: 0.8 + (i % 3) * 0.4, h: world.standHeight(d).h, pos: d.clone().multiplyScalar(R) };
+});
+const _bm = new THREE.Matrix4(), _bm2 = new THREE.Matrix4(), _flap = new THREE.Matrix4(), _mir = new THREE.Matrix4().makeScale(-1, 1, 1), _bx = V(), _bu = V(), _bf = V();
+let butterfliesOut = false;
+function updateButterflies(t) {
+  butterfliesOut = (1 - clamp((starsMat.opacity - 0.15) / 0.3, 0, 1)) > 0.05 && weather.rain < 0.4;
+  butterflies.left.visible = butterflies.right.visible = butterfliesOut;
+  if (!butterfliesOut) return;
+  bfData.forEach((b, i) => {
+    const a = t * 0.6 + b.ph;
+    b.pos.copy(b.d).multiplyScalar(R + b.h + 1.1 + Math.sin(t * 1.3 + b.ph) * 0.35).addScaledVector(b.t1, Math.cos(a) * b.r).addScaledVector(b.t2, Math.sin(a) * b.r);
+    _bu.copy(b.pos).normalize();
+    _bf.copy(b.t1).multiplyScalar(-Math.sin(a)).addScaledVector(b.t2, Math.cos(a)); _bf.addScaledVector(_bu, -_bf.dot(_bu)).normalize();
+    _bx.crossVectors(_bu, _bf);
+    _bm.makeBasis(_bx, _bu, _bf).setPosition(b.pos);
+    _flap.makeRotationZ(Math.sin(t * 18 + b.ph) * 0.9 + 0.3);
+    butterflies.left.setMatrixAt(i, _bm2.copy(_bm).multiply(_flap));
+    butterflies.right.setMatrixAt(i, _bm2.copy(_bm).multiply(_mir).multiply(_flap));
+  });
+  butterflies.left.instanceMatrix.needsUpdate = butterflies.right.instanceMatrix.needsUpdate = true;
+}
+
+// ---------------------------------------------------------------- wishes on shooting stars (E)
+let wishIdx = Number(store.get('bday-wish') || 0), wishWindow = 0, wishTimer = null;
+function makeWish() {
+  if (wishWindow <= 0 || state !== 'play' || modalOpen) return;
+  wishWindow = 0; $('btnWish').classList.add('hidden');
+  const W = CONFIG.wishes || []; if (!W.length) return;
+  const w = W[wishIdx % W.length]; wishIdx++; store.set('bday-wish', String(wishIdx));
+  const th = letterLang === 'th';
+  $('wishText').textContent = th ? w.th : w.en; $('wishText').classList.toggle('th', th);
+  $('wishCard').classList.add('show'); clearTimeout(wishTimer); wishTimer = setTimeout(() => $('wishCard').classList.remove('show'), 8000);
+  [1568, 1976, 2349, 3136].forEach((f, j) => tone(f, j * 0.09, 0.9, 0.035, 'sine'));
+  for (let j = 0; j < 8; j++) floatIcon(girl.root.localToWorld(V((Math.random() - 0.5) * 1.2, 2.4 + Math.random(), (Math.random() - 0.5) * 1.2)), glowTex, 0.35, 1.8, 1.4);
+}
+
+// ---------------------------------------------------------------- messages in bottles
+const bottleState = new Set((() => { try { return JSON.parse(store.get('bday-bottles') || '[]'); } catch { return []; } })());
+const BOTTLE_AT = [3, 7, 11, 15, 19, 23];   // each washes up once this many chouchous have arrived
+const bottleSpots = [0.94, 2.19, 3.44, 4.7, 5.96].map(a => shoreSpot(a));
+{ // the sixth: at the edge of the river's little spring
+  const s = world.spring, ax = V().crossVectors(s, world.lake.c).normalize();
+  let d = s.clone();
+  for (let a = 0.005; a < 0.3; a += 0.005) { d = s.clone().applyAxisAngle(ax, -a); if (!world.standHeight(d).wet) break; }
+  bottleSpots.push(d.applyAxisAngle(ax, -0.01));
+}
+const bottles = (CONFIG.bottles || []).slice(0, bottleSpots.length).map((b, k) => {
+  const mesh = makeBottle(), d = bottleSpots[k]; mesh.visible = false; planetGroup.add(mesh);
+  mesh.position.copy(d).multiplyScalar(R + world.standHeight(d).h + 0.04);
+  mesh.quaternion.setFromUnitVectors(AY, d).multiply(new THREE.Quaternion().setFromAxisAngle(AY, k * 1.3));
+  return { k, b, mesh, d, base: mesh.position.clone() };
+});
+let nearBottle = null, bottlesSeen = -1;
+function updateBottles(t) {
+  const u = unlockedCount(); let n = 0;
+  for (const B of bottles) {
+    const on = u >= BOTTLE_AT[B.k] && !bottleState.has(B.k) && state !== 'finale';
+    B.mesh.visible = on;
+    if (on) { n++; B.mesh.position.copy(B.base).addScaledVector(B.d, Math.sin(t * 1.5 + B.k) * 0.03); }
+  }
+  if (bottlesSeen >= 0 && n > bottlesSeen && state === 'play') { toast('🍾 Something washed up by the water…'); tone(988, 0, 0.4, 0.05, 'sine'); tone(1318, 0.15, 0.5, 0.04, 'sine'); }
+  bottlesSeen = n;
+}
+function showBottle(k) {
+  const b = (CONFIG.bottles || [])[k]; if (!b) return;
+  const th = letterLang === 'th' && b.th;
+  $('bottleTitle').textContent = th ? (b.th_title || b.title) : b.title;
+  $('bottleText').textContent = th ? b.th : b.en; $('bottleText').classList.toggle('th', !!th);
+  const img = $('bottleImg'); img.classList.add('hidden');
+  if (b.image) { img.onload = () => img.classList.remove('hidden'); img.src = b.image; }
+  openOverlay('bottleCard');
+}
+function openBottle(B) {
+  bottleState.add(B.k); store.set('bday-bottles', JSON.stringify([...bottleState]));
+  burst(B.mesh.position.clone(), 0xffffff, 16, 3, 0.5, 1); tone(660, 0, 0.2, 0.06, 'triangle'); tone(990, 0.1, 0.4, 0.05, 'triangle');
+  showBottle(B.k);
+}
+$('btnCloseBottle').onclick = () => closeOverlay('bottleCard');
+
+// ---------------------------------------------------------------- follow-the-leader (F: whistle)
+let following = [];
+function releaseFollowers() { for (const r of following) if (r.mode === 'follow') { r.mode = 'roam'; r.turnT = 0; } following = []; }
+function whistle() {
+  if (state !== 'play' || modalOpen || introLock) return;
+  tone(1318.5, 0, 0.16, 0.06, 'sine'); tone(1760, 0.15, 0.25, 0.06, 'sine');
+  if (following.length) { releaseFollowers(); return; }   // whistle again: off they go
+  if (!known()) return;
+  const me = girl.root.position;
+  const cands = roamers.filter(r => ['roam', 'watch', 'chase'].includes(r.mode) && r.group.position.distanceTo(me) < 22)
+    .sort((a, b) => a.group.position.distanceTo(me) - b.group.position.distanceTo(me)).slice(0, 6);
+  if (!cands.length) { toast('🎶 …no one nearby heard'); return; }
+  let lead = null;
+  for (const r of cands) { r.mode = 'follow'; r.leader = lead; lead = r; burst(r.group.localToWorld(V(0, 1.9, 0)), 0xffffff, 2, 1.2, 0.5, 1.2, heartTex, false); }
+  following = cands;
+}
+
+// ---------------------------------------------------------------- dancing on the stone stage (G)
+let dancing = 0, danceNoteT = 0;
+const isOnStage = () => !airborne && girlH > world.stage.top - 0.3 && girl.root.position.clone().normalize().angleTo(world.stage.dir) * R < world.stage.r;
+function startDance() {
+  if (state !== 'play' || modalOpen || introLock || dancing > 0 || gear.floating || !isOnStage()) return;
+  dancing = 8;
+  [72, 76, 79, 76, 77, 81, 84, 81, 79, 76, 72, 74, 76, 79, 84, 88].forEach((m, j) => tone(440 * Math.pow(2, (m - 69) / 12), j * 0.45, 0.35, 0.06, 'triangle'));
+  for (const r of roamers) if (['roam', 'follow', 'watch', 'chase'].includes(r.mode) && r.group.position.distanceTo(girl.root.position) < 16) { r.wasFollow = r.mode === 'follow'; r.mode = 'dance'; r.danceT = 8; }
+}
+
+// ---------------------------------------------------------------- names for chouchous
+let names = {}; try { names = JSON.parse(store.get('bday-names') || '{}'); } catch {}
+let naming = null, labelFor = -1;
+function askName(i) { naming = i; $('nameInput').value = names[i] || ''; openOverlay('nameCard'); setTimeout(() => $('nameInput').focus(), 60); }
+function backToCatalogue() { closeOverlay('nameCard'); renderCatalogue(); openOverlay('catalogue'); }
+$('btnSaveName').onclick = () => {
+  const v = $('nameInput').value.trim();
+  if (naming != null) { if (v) names[naming] = v; else delete names[naming]; store.set('bday-names', JSON.stringify(names)); labelFor = -1; }
+  backToCatalogue();
+};
+$('btnCancelName').onclick = backToCatalogue;
+$('nameInput').addEventListener('keydown', e => { if (e.key === 'Enter') $('btnSaveName').click(); if (e.key === 'Escape') backToCatalogue(); });
+const nameLabel = new THREE.Sprite(new THREE.SpriteMaterial({ map: new THREE.CanvasTexture(document.createElement('canvas')), transparent: true, depthWrite: false, depthTest: false }));
+nameLabel.visible = false; nameLabel.renderOrder = 15; scene.add(nameLabel);
+function updateNameLabel() {
+  let best = null, bd = 3.8;
+  if (state === 'play') for (const r of roamers) {
+    if (!names[r.i] || r.mode === 'flung') continue;
+    const d = r.group.position.distanceTo(girl.root.position);
+    if (d < bd) { bd = d; best = r; }
+  }
+  nameLabel.visible = !!best;
+  if (!best) return;
+  if (labelFor !== best.i) {
+    labelFor = best.i;
+    const c = document.createElement('canvas'), x = c.getContext('2d'), font = '700 64px Gaegu, Mali, Quicksand, sans-serif';
+    x.font = font; const w = Math.ceil(x.measureText(names[best.i]).width) + 50; c.width = w; c.height = 96;
+    x.font = font; x.textAlign = 'center'; x.textBaseline = 'middle'; x.lineJoin = 'round';
+    x.lineWidth = 12; x.strokeStyle = 'rgba(255,255,255,.95)'; x.strokeText(names[best.i], w / 2, 50); x.fillStyle = '#6b8f3c'; x.fillText(names[best.i], w / 2, 50);
+    nameLabel.material.map?.dispose(); nameLabel.material.map = new THREE.CanvasTexture(c); nameLabel.material.map.colorSpace = THREE.SRGBColorSpace; nameLabel.material.needsUpdate = true;
+    nameLabel.scale.set(0.42 * (w / 96), 0.42, 1);
+  }
+  nameLabel.position.copy(best.group.localToWorld(V(0, 2.35, 0)));
+}
+
+// ---------------------------------------------------------------- photo mode (C): a polaroid of the moment
+function takePhoto() {
+  if (state === 'intro' || modalOpen) return;
+  const hide = [arrowPivot, nameLabel], was = hide.map(o => o.visible); hide.forEach(o => { o.visible = false; });
+  composer.render();
+  const src = renderer.domElement;
+  const pw = 1200, ph = Math.round(pw * src.height / src.width), pad = 46, foot = 150;
+  const c = document.createElement('canvas'); c.width = pw + pad * 2; c.height = ph + pad + foot;
+  const x = c.getContext('2d');
+  x.fillStyle = '#fffdf7'; x.fillRect(0, 0, c.width, c.height);
+  x.drawImage(src, pad, pad, pw, ph);
+  hide.forEach((o, i) => { o.visible = was[i]; });
+  x.textAlign = 'center';
+  x.fillStyle = '#6b3d22'; x.font = '700 50px Gaegu, Caveat, cursive'; x.fillText('Birthday Planet ♥', c.width / 2, ph + pad + 72);
+  const when = new Date(now()).toLocaleString('en-GB', { day: 'numeric', month: 'long', year: 'numeric', hour: '2-digit', minute: '2-digit', timeZone: CONFIG.timeZone });
+  x.fillStyle = '#a37a55'; x.font = '500 28px Quicksand, sans-serif'; x.fillText(when, c.width / 2, ph + pad + 116);
+  const url = c.toDataURL('image/png');
+  $('photoImg').src = url; $('btnSavePhoto').href = url;
+  $('btnSavePhoto').download = `birthday-planet-${new Date(now()).toISOString().slice(0, 16).replace(/[:T]/g, '-')}.png`;
+  $('flash').classList.add('on'); requestAnimationFrame(() => requestAnimationFrame(() => $('flash').classList.remove('on')));
+  noiseSound(0.12, 3000, 0.08, 0.005); tone(1200, 0.05, 0.08, 0.05, 'square');
+  setTimeout(() => openOverlay('photoCard'), 250);
+}
+$('btnClosePhoto').onclick = () => { closeOverlay('photoCard'); if (finale?.ended) $('btnEndReopen').classList.remove('hidden'); };
+
+// ---------------------------------------------------------------- a hello that depends on the hour
+function greeting() {
+  const h = hourOfDay();
+  if (h >= 5 && h < 11) return '☀️ Good morning, Cream';
+  if (h >= 11 && h < 17) return '🌤️ Good afternoon, baobao';
+  if (h >= 17 && h < 21) return '🌇 Good evening, my love';
+  return '🌙 Still up, baobao?';
+}
+
+function updateLife(dt, t) {
+  updateWeather(dt, t);
+  updateFireflies(t);
+  updateButterflies(t);
+  updateBottles(t);
+  updateNameLabel();
+  // a wish can be made while a shooting star is crossing (and a moment after)
+  wishWindow -= dt;
+  if (state === 'play' && shooting.visible && shooting.material.opacity > 0.15) wishWindow = 2.2;
+  $('btnWish').classList.toggle('hidden', !(wishWindow > 0 && state === 'play' && !modalOpen));
+  $('btnDance').classList.toggle('hidden', !(state === 'play' && !modalOpen && !introLock && dancing <= 0 && !gear.floating && isOnStage()));
+}
+
 // ============================================================ berries
 let berries = Number(store.get('bday-berries') || 0);
 const flying = [];
@@ -638,6 +976,17 @@ function updateTimeUI() {
 
 function renderCatalogue() {
   const grid = $('grid'); grid.innerHTML = '';
+  // messages in bottles she's opened, to read again
+  const shelf = $('bottleShelf'); shelf.innerHTML = '';
+  const opened = [...bottleState].sort((a, b) => a - b);
+  if (opened.length) {
+    shelf.innerHTML = '<div class="eyebrow">messages in bottles</div>';
+    for (const k of opened) {
+      const b = (CONFIG.bottles || [])[k]; if (!b) continue;
+      const btn = document.createElement('button'); btn.textContent = '🍾 ' + (letterLang === 'th' && b.th_title ? b.th_title : b.title);
+      btn.onclick = () => { closeOverlay('catalogue'); showBottle(k); }; shelf.appendChild(btn);
+    }
+  }
   const u = unlockedCount();
   $('catTitle').textContent = known() ? 'Your chouchous' : 'Your treasures';
   $('catSummary').textContent = `${collected.size} of ${TOTAL} letters received`;
@@ -654,6 +1003,9 @@ function renderCatalogue() {
       el.innerHTML = `<span class="em">🐣${EMOJI[c % EMOJI.length]}</span><b></b>`;
       el.querySelector('b').textContent = L.title || `Hour ${i + 1}`;
       el.onclick = () => { closeOverlay('catalogue'); openLetter(i); };
+      const nm = document.createElement('span'); nm.className = 'nm'; nm.textContent = names[c] || ''; el.appendChild(nm);   // the chouchou who brought it
+      const rn = document.createElement('span'); rn.className = 'rename'; rn.textContent = names[c] ? '✏️' : '✏️ name'; rn.title = 'Name this chouchou';
+      rn.onclick = e => { e.stopPropagation(); closeOverlay('catalogue'); askName(c); }; el.appendChild(rn);
     } else if (i < got + holding) {
       el.className = 'slot waiting';
       el.innerHTML = `<span class="em">🐣💌</span><b>Hour ${i + 1}</b><span>Has a letter for you!</span>`;
@@ -673,7 +1025,7 @@ function renderCatalogue() {
 function openOverlay(id) { $(id).classList.add('open'); modalOpen = true; }
 function closeOverlay(id) {
   $(id).classList.remove('open');
-  modalOpen = ['intro', 'controls', 'firstSeen', 'offer', 'gift', 'letter', 'catalogue', 'ending'].some(k => $(k).classList.contains('open'));
+  modalOpen = ['intro', 'controls', 'firstSeen', 'offer', 'gift', 'letter', 'catalogue', 'ending', 'bottleCard', 'photoCard', 'nameCard'].some(k => $(k).classList.contains('open'));
 }
 const known = () => pulled.size > 0;   // she only learns what a chouchou is when she pulls out the first one
 {
@@ -731,6 +1083,7 @@ $('btnStart').onclick = () => {
   getAudio(); playMusic('planet');
   closeOverlay('intro');
   state = 'play'; diveUntil = lastT + DIVE;
+  setTimeout(() => toast(greeting()), DIVE * 1000 + 400);
   girl.root.visible = true;
   dive = { from: camera.position.clone(), look: camLook.clone(), up: camera.up.clone() };
   $('hud').classList.remove('hidden');
@@ -766,6 +1119,7 @@ $('btnCat').onclick = () => { renderCatalogue(); openOverlay('catalogue'); };
 $('btnCloseCat').onclick = () => { closeOverlay('catalogue'); if (finale?.ended) $('btnEndReopen').classList.remove('hidden'); };
 $('btnCloseLetter').onclick = () => {
   closeOverlay('letter');
+  if (store.get('bday-name-hint') !== '1' && collected.size >= 1 && !pendingFinale.v) { store.set('bday-name-hint', '1'); setTimeout(() => toast('✏️ You can give your chouchous names, in the 📖'), 900); }
   if (finale?.ended) $('btnEndReopen').classList.remove('hidden');
   if (pendingFinale.v) { pendingFinale.v = false; setTimeout(() => { toast('💫 The stone chouchou is glowing… go back to it'); chime(); }, 900); }
 };
@@ -940,6 +1294,7 @@ if (DEBUG) {
     const seq = [0, 6.3, 12, 17.9, null], i = seq.indexOf(skyHourOverride);
     skyHourOverride = seq[(i + 1) % seq.length]; toast(skyHourOverride === null ? 'Sky follows the clock' : `Sky at ${skyHourOverride}h`);
   });
+  add('Rain shower now', () => { weather.phase = 'rain'; weather.t = 0; });
   add('Planet view on/off', () => { overview = !overview; });
   add('Teleport to a chouchou', () => {
     const b = buried.values().next().value || roamers[0]?.group; if (!b) return toast('No chouchous right now');
@@ -964,11 +1319,15 @@ addEventListener('click', e => e.target.closest?.('button')?.blur(), true);
 addEventListener('keydown', e => {
   if (e.target.tagName === 'INPUT' || e.target.classList?.contains('dial')) return;
   keys[e.code] = true;
+  if (!e.repeat && e.code === 'KeyC') takePhoto();   // photos work during the ending's orbit too
   if (state === 'finale') { if ((e.code === 'Space' || e.code === 'Enter') && !e.repeat) { e.preventDefault(); finaleAction(); } return; }
   if (e.code === 'Space') { e.preventDefault(); if (!e.repeat) spaceAction(); }
   if (!e.repeat && e.code === 'KeyI') toggleGear('wand');
   if (!e.repeat && e.code === 'KeyP') toggleGear('parasol');
   if (!e.repeat && e.code === 'KeyO') floatPress();
+  if (!e.repeat && e.code === 'KeyE') makeWish();
+  if (!e.repeat && e.code === 'KeyF') whistle();
+  if (!e.repeat && e.code === 'KeyG') startDance();
 });
 $('btnFloat').addEventListener('pointerdown', e => { e.preventDefault(); floatPress(); });
 $('btnPull').addEventListener('pointerdown', e => { e.preventDefault(); pullPress(); });
@@ -978,6 +1337,7 @@ function spaceAction() {
   else if (nearChicken) pullPress();
   else if (nearFeed) feed(nearFeed);
   else if (nearBerry) pickBerry(nearBerry);
+  else if (nearBottle) openBottle(nearBottle);
   else jump();
 }
 $('btnJump').addEventListener('pointerdown', e => { e.preventDefault(); jump(); });
@@ -1012,7 +1372,7 @@ const pq = new THREE.Quaternion();   // her orientation on the planet
 const tq = new THREE.Quaternion();
 const camLook = V(0, R, 0);
 camera.position.set(0, R + 7, -11);
-let walkAmt = 0, wet = false, girlH = 0, overview = false;
+let walkAmt = 0, wet = false, girlH = 0, overview = false, idleT = 0;
 // jumping: a simple little hop
 let vy = 0, airborne = false;
 const GRAVITY = 26;
@@ -1138,11 +1498,14 @@ function updatePlayer(dt, t) {
       if (tr.dir.angleTo(here) * R < 2.2 + tr.s && tr.slots.some(x => x.present)) { nearBerry = tr; break; }
     }
   }
-  const txt = nearFeed ? 'feed' : nearBerry ? 'pick' : '';
+  nearBottle = null;
+  if (canMove) for (const B of bottles) if (B.mesh.visible && B.mesh.position.distanceTo(girl.root.position) < 2.4) nearBottle = B;
+  const txt = nearFeed ? 'feed' : nearBerry ? 'pick' : nearBottle ? 'bottle' : '';
   if (txt !== actText) {
     actText = txt;
     $('btnAct').classList.toggle('hidden', !txt);
     if (txt === 'feed') $('btnAct').innerHTML = '<span class="pc-text">🍒 <b>SPACE</b> to feed him</span><span class="pc-touch">🍒 Tap to feed him</span>';
+    if (txt === 'bottle') $('btnAct').innerHTML = '<span class="pc-text">🍾 <b>SPACE</b> to open the bottle</span><span class="pc-touch">🍾 Tap to open the bottle</span>';
     if (txt === 'pick') $('btnAct').innerHTML = '<span class="pc-text">🍒 <b>SPACE</b> to pick a berry</span><span class="pc-touch">🍒 Tap to pick a berry</span>';
   }
   let aim = best?.position, aimD = bestD;
@@ -1163,7 +1526,17 @@ function updatePlayer(dt, t) {
   girl.root.quaternion.copy(pq).multiply(tq.setFromAxisAngle(AY, faceYaw));
   walkAmt = lerp(walkAmt, len > 0.05 ? 1 : 0, 0.15);
   const pulling = nearChicken && nearChicken.userData.pull > 0.02;
-  const pose = pulling ? 'pull' : actionPose ? actionPose.pose : gear.floating ? 'sit' : airborne ? 'jump' : 'walk';
+  // dancing on the stage; idling: a stretch, then she sits down (or, at night, lies back to look at the stars)
+  if (dancing > 0) {
+    dancing -= dt;
+    if (len > 0.05 || !isOnStage()) dancing = 0;
+    faceYaw += dt * 1.8; faceTarget = faceYaw;
+    if ((danceNoteT -= dt) <= 0) { danceNoteT = 0.45; floatIcon(girl.root.localToWorld(V((Math.random() - 0.5) * 1.4, 2.6, 0)), noteTex, 0.45, 1.6, 1.2); }
+  }
+  idleT = len < 0.05 && canMove && !airborne && !pulling && !actionPose && !gear.floating && dancing <= 0 ? idleT + dt : 0;
+  let pose = pulling ? 'pull' : actionPose ? actionPose.pose : gear.floating ? 'sit' : dancing > 0 ? 'dance' : airborne ? 'jump' : 'walk';
+  if (pose === 'walk' && idleT > 12) pose = isNightHour(hourOfDay()) ? 'stargaze' : 'sit';
+  else if (pose === 'walk' && idleT > 5 && idleT < 7.5) pose = 'stretch';
   animateCharacter(girl, t, walkAmt, pose);
   if (gear.floating) girl.rig.position.y = 0.05;   // sitting in the ring
   // holding things: that arm stays up (unless she needs both hands), and the holder cancels its tilt
@@ -1354,7 +1727,7 @@ function updateChickens(dt, t) {
     // when she comes close: hop with excitement, run over, and cuddle her
     const toGirl = girl.root.position.distanceTo(r.group.position);
     if (toGirl > 4.8) r.armed = true;   // re-arms as soon as she steps away, so it greets her every time she comes back
-    if ((r.mode === 'roam' || r.mode === 'water' || r.mode === 'toWater') && r.armed !== false && toGirl < 4.5 && state === 'play' && !modalOpen) {
+    if ((r.mode === 'roam' || r.mode === 'water' || r.mode === 'toWater' || r.mode === 'watch') && r.armed !== false && toGirl < 4.5 && state === 'play' && !modalOpen) {
       r.mode = 'excited'; r.armed = false; r.t = 0; tone(1046.5, 0, 0.15, 0.08, 'triangle'); tone(1318.5, 0.1, 0.2, 0.08, 'triangle');
     }
     if (r.mode === 'excited' || r.mode === 'approach' || r.mode === 'cuddle') {
@@ -1419,6 +1792,68 @@ function updateChickens(dt, t) {
       root.rotation.z = Math.sin(t * 10 + r.phase) * 0.1;
       continue;
     }
+    if (r.mode === 'follow') {                    // trotting along behind her (or behind the one in front)
+      const lp = r.leader && r.leader.mode === 'follow' ? r.leader.group.position : girl.root.position;
+      const d = r.group.position.distanceTo(lp);
+      if (d > 1.7) { walkToward(r, lp.clone().normalize(), clamp(d * 2.2, 2, 7.5), dt, 0.1); hopAnim(r, t, 0.2, 11); }
+      else { turnToward(r, lp, dt); root.position.y = 0; root.rotation.set(0, 0, 0); }
+      placeRoamer(r);
+      continue;
+    }
+    if (r.mode === 'dance') {                     // bopping along to her dance
+      r.danceT -= dt;
+      turnToward(r, girl.root.position, dt);
+      root.position.y = Math.abs(Math.sin(t * 9 + r.phase)) * 0.4;
+      root.rotation.set(0, Math.sin(t * 2 + r.phase) * 0.6, Math.sin(t * 4.5 + r.phase) * 0.25);
+      for (const [j, l] of r.ch.leaves.entries()) l.rotation.x = Math.sin(t * 9 + j) * 0.3;
+      if (r.danceT <= 0 || dancing <= 0) { r.mode = r.wasFollow ? 'follow' : 'roam'; root.rotation.set(0, 0, 0); r.turnT = 0; }
+      placeRoamer(r);
+      continue;
+    }
+    if (r.mode === 'toNap') {                     // night: toddle over to the napping spot
+      if (!isNightHour(hourOfDay())) { r.mode = 'roam'; placeRoamer(r); continue; }
+      const there = walkToward(r, r.nap, 1.6, dt, 1.3);
+      hopAnim(r, t, 0.12, 7);
+      if (there || r.t > 45) { r.mode = 'sleep'; r.t = 0; }
+      placeRoamer(r);
+      continue;
+    }
+    if (r.mode === 'sleep') {                     // curled up asleep, little z's floating up
+      const br = Math.sin(t * 1.6 + r.phase) * 0.03;
+      root.position.y = 0; root.rotation.set(0.15, 0, 0.32 * (r.phase > 3 ? 1 : -1)); root.scale.set(1 + br * 0.5, 1 + br, 1);
+      r.zT = (r.zT ?? Math.random() * 3) - dt;
+      if (r.zT <= 0 && state === 'play') { r.zT = 2.2 + Math.random() * 1.5; floatIcon(r.group.localToWorld(V(0.3, 1.7, 0.2)), zTex, 0.4, 2.4, 0.6); }
+      if (!isNightHour(hourOfDay())) {   // morning! a big stretchy hop and off it goes
+        r.mode = 'roam'; root.scale.setScalar(1); root.rotation.set(0, 0, 0); r.turnT = 0;
+        burst(r.group.localToWorld(V(0, 1.6, 0)), 0xfff3b0, 6, 1.5, 0.35, 0.8);
+      }
+      placeRoamer(r);
+      continue;
+    }
+    if (r.mode === 'watch') {                     // sunset: sitting quietly, watching the sky
+      if (!isDuskHour(hourOfDay())) { r.mode = 'roam'; root.rotation.set(0, 0, 0); placeRoamer(r); continue; }
+      turnToward(r, world.lake.c.clone().multiplyScalar(R), dt * 0.4);
+      root.position.y = 0; root.rotation.set(-0.15, 0, Math.sin(t * 0.8 + r.phase) * 0.05);
+      placeRoamer(r);
+      continue;
+    }
+    if (r.mode === 'toShelter' || r.mode === 'shelter') {   // rain: huddle under a leafy tree until it passes
+      if (weather.rain < 0.2) { r.mode = 'roam'; root.rotation.set(0, 0, 0); r.turnT = 0; placeRoamer(r); continue; }
+      if (r.mode === 'toShelter') {
+        const there = !r.shelter || walkToward(r, r.shelter, 3.2, dt, 0.5);
+        hopAnim(r, t, 0.14, 11);
+        if (there || r.t > 20) r.mode = 'shelter';
+      } else { root.position.y = 0; root.rotation.set(0.1, 0, Math.sin(t * 28 + r.phase) * 0.025); }   // a little shiver
+      placeRoamer(r);
+      continue;
+    }
+    if (r.mode === 'chase') {                     // hopping after a butterfly for a moment
+      const there = !butterfliesOut || walkToward(r, r.chase.pos.clone().normalize(), 2.6, dt, 0.6);
+      root.position.y = Math.abs(Math.sin(t * 7 + r.phase)) * 0.45; root.rotation.set(0, 0, Math.sin(t * 7) * 0.12);
+      if (there || r.t > 4) { r.mode = 'roam'; root.rotation.set(0, 0, 0); }
+      placeRoamer(r);
+      continue;
+    }
     if (r.mode === 'leaveWater') {                // time's up: turn away from the middle and wade/paddle back to the shore
       const rel = world.lake.c.clone().multiplyScalar(R).sub(r.group.position).applyQuaternion(r.q.clone().invert());
       const yaw = Math.atan2(rel.x, rel.z) + Math.PI;
@@ -1456,6 +1891,16 @@ function updateChickens(dt, t) {
       continue;
     }
 
+    // the planet's daily rhythm: shelter from rain, nap at night, watch the sunset, chase butterflies
+    if (state === 'play') {
+      const h = hourOfDay();
+      let next = null;
+      if (weather.rain > 0.35) { next = 'toShelter'; r.shelter = shelterFor(r); }
+      else if (isNightHour(h) && r.i % 5 < 3) { next = 'toNap'; r.nap = NAP_SPOTS.reduce((a, b) => (b.angleTo(r.group.position) < a.angleTo(r.group.position) ? b : a), NAP_SPOTS[0]); }
+      else if (isDuskHour(h) && r.i % 2 === 0) next = 'watch';
+      else if (butterfliesOut && Math.random() < dt * 0.1) { const b = bfData.find(b => b.pos.distanceTo(r.group.position) < 5); if (b) { next = 'chase'; r.chase = b; } }
+      if (next && (next !== 'toNap' || NAP_SPOTS.length)) { r.mode = next; r.t = 0; placeRoamer(r); continue; }
+    }
     // roam: wander, pause, turn away from trees, water and her
     root.rotation.y *= 0.9;
     r.turnT -= dt;
@@ -1781,6 +2226,7 @@ function startFinale() {
   state = 'finale';
   gear.wand = gear.parasol = gear.floating = false; wandHolder.visible = parasolHolder.visible = floatRing.root.visible = sky1.visible = false; wandLight.intensity = 0; starFx.phase = 'off';
   $('btnFloat').classList.add('hidden');
+  releaseFollowers(); dancing = 0; weather.phase = 'clear'; $('btnWish').classList.add('hidden'); $('btnDance').classList.add('hidden');
   $('hud').classList.add('hidden');   // the finale is a cinematic: no HUD
   $('joystick').classList.add('hidden'); $('btnJump').classList.add('hidden');
   arrowPivot.visible = false;
@@ -2264,6 +2710,10 @@ function updateSky(dt) {
   const nk = skySnap ? 1 : 1 - Math.exp(-dt * 0.6), u = sky.material.uniforms;
   const h = hourOfDay(), dayT = clamp((h - 6) / 12, 0, 1);
   const L = waitingMode ? lookAt(0) : lookAt(h);
+  if (weather.rain > 0 && !waitingMode) {   // a soft grey rainy sky, dimmer sun
+    const k = weather.rain;
+    L.top.lerp(RAIN_TOP, 0.55 * k); L.bottom.lerp(RAIN_BOTTOM, 0.55 * k); L.sunI *= 1 - 0.6 * k; L.hemiI *= 1 - 0.15 * k; L.stars *= 1 - k;
+  }
   u.uTime.value += dt;
   // waiting page: a new space palette every ~22 s (the slow lerp makes the crossfade); at night in play, just a hint of nebula
   const P = waitingMode ? SPACE[Math.floor(u.uTime.value / 22) % SPACE.length] : null;
@@ -2301,7 +2751,7 @@ function updateShootingStar(dt) {
     shooting.position.addScaledVector(shoot.vel, dt);
     m.opacity = Math.sin(Math.min(1, k) * Math.PI) * starsMat.opacity;
     shooting.scale.set(lerp(8, 34, Math.min(1, k * 2.5)), 0.9, 1);
-    if (k >= 1) { shooting.visible = false; shoot.wait = waitingMode ? 2 + Math.random() * 5 : 5 + Math.random() * 12; }   // more of them while she waits
+    if (k >= 1) { shooting.visible = false; shoot.wait = waitingMode ? 2 + Math.random() * 5 : state === 'play' ? 18 + Math.random() * 25 : 5 + Math.random() * 12; }   // lots while she waits; rarer (wish-worthy) in play
     return;
   }
   if (starsMat.opacity < 0.5 || (shoot.wait -= dt) > 0) return;
@@ -2335,6 +2785,7 @@ function step(dt, t) {
   if (state === 'play') updateWaterhole(dt);
   updateBerries(dt);
   updateStatue(dt, t);
+  updateLife(dt, t);
   updateParticles(dt);
   cloudPivot.rotation.y += dt * 0.02;
   for (const c of cloudPivot.children) {   // elephants gently bob up and down
@@ -2366,6 +2817,12 @@ addEventListener('resize', fitView);
 for (const i of pulled) addRoamer(i, new THREE.Quaternion().setFromUnitVectors(AY, flowerDirs[i]), makeCabbageChicken(new THREE.Color(PALETTE[i % PALETTE.length])), false);
 // on a return visit, the waterhole already has its regulars
 for (const r of roamers.filter(x => x.mode === 'roam').slice(0, WATER_SPOTS.length)) sendToWater(r, WATER_SPOTS.find(sp => !sp.taken), true);
+{
+  const extra = [rain.lines, rainbow, fireflies.points, butterflies.left, butterflies.right, nameLabel, ...bottles.map(b => b.mesh), ...ripples];
+  const was = extra.map(o => o.visible); extra.forEach(o => { o.visible = true; });
+  renderer.compile(scene, camera);
+  extra.forEach((o, i) => { o.visible = was[i]; });
+}
 updateBerryHUD(false);
 syncChickens();
 updateTimeUI();

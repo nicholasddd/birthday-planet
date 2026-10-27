@@ -758,7 +758,6 @@ $('btnCloseLetter').onclick = () => {
 };
 $('letter').addEventListener('click', e => { if (e.target.id === 'letter') $('btnCloseLetter').click(); });
 $('btnEndCat').onclick = () => { closeOverlay('ending'); renderCatalogue(); openOverlay('catalogue'); };
-$('btnReplay').onclick = () => location.reload();
 // the ending card can be put away to just watch everyone orbit the planet, and brought back any time
 const hideEnding = () => { closeOverlay('ending'); $('btnEndReopen').classList.remove('hidden'); $('orbitHint').classList.remove('hidden'); };
 $('btnEndClose').onclick = hideEnding;

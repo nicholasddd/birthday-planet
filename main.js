@@ -442,7 +442,7 @@ const statue = { group: new THREE.Group(), stone: null, mat: null, giant: null, 
 }
 const allFound = () => collected.size === TOTAL;
 // the stone comes to life: a real, fluffy giant chouchou with a big flower
-function wakeStatue() {
+function wakeStatue(quiet = false) {
   if (statue.state !== 'stone') return;
   statue.state = 'awake';
   const ch = makeCabbageChicken(new THREE.Color(0xff8fb8));
@@ -453,6 +453,7 @@ function wakeStatue() {
   statue.group.add(ch.root);
   showShells(ch.root);
   statue.giant = ch; statue.stone.visible = false; statue.t = 0;
+  if (quiet) return;
   const top = statue.group.localToWorld(V(0, 2.4, 0));
   burst(top, 0xffffff, 40, 9, 1.2, 1.4);
   burst(top, 0xffe6b0, 24, 6, 0.8, 1.6, glowTex, false);
@@ -461,14 +462,22 @@ function wakeStatue() {
   toast('✨ The stone chouchou woke up! Hop up onto the stage');
 }
 function updateStatue(dt, t) {
-  const glowing = allFound() && state !== 'finale' && statue.state !== 'done';
+  const glowing = allFound() && state !== 'finale' && statue.state !== 'done' && statue.state !== 'post';
   statue.glow.visible = glowing || statue.glow.material.opacity > 0.01;
   statue.glow.material.opacity = lerp(statue.glow.material.opacity, glowing ? 0.35 + Math.sin(t * 2) * 0.12 : 0, 1 - Math.exp(-dt * 3));
   statue.mat.emissiveIntensity = glowing && statue.state === 'stone' ? 0.25 + Math.sin(t * 2) * 0.15 : 0;
-  if (!glowing || state !== 'play') return;
+  if (state !== 'play' || (!glowing && statue.state !== 'post')) return;
   const d = girl.root.position.distanceTo(statue.group.getWorldPosition(V()));
   if (statue.state === 'stone' && d < 11) wakeStatue();
   const g = statue.giant;
+  if (g && statue.state === 'post') {   // afterwards: it stays on its stage, bouncing gently, turning to look at her when she's near
+    statue.t += dt;
+    g.root.scale.setScalar(2.4 * Math.min(1, easeOutBack(clamp(statue.t / 0.7, 0, 1))));
+    g.root.position.y = 0.3 + Math.pow(Math.abs(Math.sin(t * 1.2)), 6) * (d < 12 ? 0.3 : 0.1);
+    if (d < 12) { const rel = statue.group.worldToLocal(girl.root.position.clone()); g.root.rotation.y = lerp(g.root.rotation.y, Math.atan2(rel.x, rel.z), 0.04); }
+    for (const [j, l] of g.leaves.entries()) l.rotation.x = Math.sin(t * 2 + j) * 0.12;
+    return;
+  }
   if (g && statue.state === 'awake') {   // bouncing happily, looking at her
     statue.t += dt;
     const pop = easeOutBack(clamp(statue.t / 0.7, 0, 1));
@@ -692,6 +701,9 @@ function updateButterflies(t) {
 
 // ---------------------------------------------------------------- wishes on shooting stars (E)
 let lastWish = Number(store.get('bday-wish-last') ?? -1), wishWindow = 0, wishTimer = null;
+const wishesSeen = new Set((() => { try { return JSON.parse(store.get('bday-wishes-seen') || '[]'); } catch { return []; } })());
+const wishesLeft = () => Math.max(0, (CONFIG.wishes || []).length - wishesSeen.size);
+const bottlesLeft = () => Math.max(0, (CONFIG.bottles || []).length - bottleState.size);
 // while a shooting star is crossing, a little "🌠 E" bubble pops up above her head so she doesn't miss it
 const wishBubble = (() => {
   const c = document.createElement('canvas'); c.width = 300; c.height = 120;
@@ -712,9 +724,12 @@ function makeWish() {
   if (wishWindow <= 0 || state !== 'play' || modalOpen) return;
   wishWindow = 0; shoot.wished = true;   // one wish per shooting star
   const W = CONFIG.wishes || []; if (!W.length) return;
-  let k = Math.floor(Math.random() * W.length);   // one at random — never the same one twice in a row
-  if (W.length > 1 && k === lastWish) k = (k + 1 + Math.floor(Math.random() * (W.length - 1))) % W.length;
+  // one at random: ones she hasn't seen yet first, and never the same one twice in a row
+  const unseen = W.map((_, i) => i).filter(i => !wishesSeen.has(i) && i !== lastWish);
+  const pool = unseen.length ? unseen : W.map((_, i) => i).filter(i => i !== lastWish || W.length === 1);
+  const k = pool[Math.floor(Math.random() * pool.length)];
   lastWish = k; store.set('bday-wish-last', String(k));
+  wishesSeen.add(k); store.set('bday-wishes-seen', JSON.stringify([...wishesSeen])); updateTimeUI();
   const w = W[k];
   const th = letterLang === 'th';
   $('wishText').textContent = th ? w.th : w.en; $('wishText').classList.toggle('th', th);
@@ -935,8 +950,9 @@ function returnToPlanet() {
   flung.length = 0; WATER_SPOTS.forEach(sp => { sp.taken = null; });
   planetGroup.visible = true; planetGroup.scale.setScalar(1); planetGroup.position.set(0, 0, 0);
   cake.visible = false; shake = 0;
-  statue.state = 'done'; statue.stone.visible = true;
+  statue.giant = null; statue.state = 'stone';
   finale = null; state = 'play';
+  enterPostGame();
   vy = 0; airborne = false; girlH = floorAt(AY.clone().applyQuaternion(pq), 99);
   // a gentle swoop back down to her, like the first time
   dive = { from: camera.position.clone(), look: camLook.clone(), up: camera.up.clone() }; diveUntil = lastT + DIVE;
@@ -948,12 +964,40 @@ function returnToPlanet() {
 }
 $('btnBackToPlanet').onclick = returnToPlanet;
 
+// ---------------------------------------------------------------- afterwards: free roam, with the strawberry boy tagging along
+let postGame = false;
+const berryPal = { q: new THREE.Quaternion(), group: null, moving: false };   // (group = the strawberry boy, linked when post-game starts)
+const BERRY_SCALE = 0.27, BERRY_LIFT = 1.45;   // about her height, standing on his little legs
+function enterPostGame() {
+  postGame = true; berryPal.group = bean;
+  if (!statue.giant) { statue.state = 'stone'; wakeStatue(true); }
+  statue.state = 'post'; statue.t = 0;
+  cake.visible = false;
+  scene.add(bean); bean.visible = true; bean.scale.setScalar(BERRY_SCALE); bean.position.set(0, 0, 0); bean.rotation.set(0, 0, 0);
+  sb.pop = [1, 1, 1]; sb.bite.scale.setScalar(1); sb.blush.opacity = 0.55;
+  berryPal.q.copy(pq).multiply(new THREE.Quaternion().setFromAxisAngle(AX, -2.4 / R));   // just behind her
+  updateTimeUI();
+}
+function updateBerryPal(dt, t) {
+  if (!postGame || state !== 'play') return;
+  const me = AY.clone().applyQuaternion(pq), him = AY.clone().applyQuaternion(berryPal.q), d = me.angleTo(him) * R;
+  berryPal.moving = d > 2.4;
+  if (berryPal.moving) walkToward(berryPal, me, clamp(d * 1.8, 2, 6.5), dt, 2.2);   // waddles after her (waits at the water's edge)
+  else turnToward(berryPal, girl.root.position, dt * 0.5);
+  const at = AY.clone().applyQuaternion(berryPal.q);
+  const onStageTop = at.angleTo(world.stage.dir) * R < world.stage.r;   // (only if he started up there with her)
+  bean.position.copy(at).multiplyScalar(R + (onStageTop ? world.stage.top : world.standHeight(at).h) + BERRY_LIFT);
+  bean.quaternion.copy(berryPal.q);
+  poseBerryBoy(t, berryPal.moving ? 0.55 : 0.12);
+}
+
 function updateLife(dt, t) {
   updateWeather(dt, t);
   updateFireflies(t);
   updateButterflies(t);
   updateBottles(t);
   updateNameLabel();
+  updateBerryPal(dt, t);
   // a wish can be made while a shooting star is crossing (and a moment after)
   wishWindow -= dt;
   if (state === 'play' && shooting.visible && shooting.material.opacity > 0.15 && !shoot.wished) wishWindow = 2.2;
@@ -1124,7 +1168,7 @@ function updateTimeUI() {
   const next = '';   // after the first hour there are no countdowns: chouchous just turn up
   if (state === 'finale') st.classList.add('hidden');
   else if (collected.size === TOTAL) {
-    st.innerHTML = statue.state === 'done' ? `${dot}Take your time · there's more to find` : statue.state === 'awake' ? `${dot}The giant chouchou is waiting on the stone stage` : `${dot}All ${TOTAL} letters found · go back to the stone chouchou`;
+    st.innerHTML = postGame ? `${dot}${wishesLeft() || bottlesLeft() ? `🌠 ${wishesLeft()} wishing star${wishesLeft() === 1 ? '' : 's'} · 🍾 ${bottlesLeft()} bottle${bottlesLeft() === 1 ? '' : 's'} left to find` : 'You found every wish and every bottle ♥'}` : statue.state === 'done' ? `${dot}Take your time · there's more to find` : statue.state === 'awake' ? `${dot}The giant chouchou is waiting on the stone stage` : `${dot}All ${TOTAL} letters found · go back to the stone chouchou`;
   } else if (u === 0) st.innerHTML = `${dot}The planet is quiet… for now`;
   else if (waiting > 0) st.innerHTML = known()
     ? `${dot}${waiting > 1 ? waiting + ' chouchous are' : 'A chouchou is'} stuck${next}`
@@ -2795,7 +2839,7 @@ function updateFinale(dt, t) {
     const dist = 109 * f.zoom, el = lerp(0.1, 0.36, clamp((f.zoom - 0.52) / 0.48, 0, 1));
     camPos = F(0, Math.sin(el) * dist, Math.cos(el) * dist).applyAxisAngle(F(0, 1, 0), f.camYaw);
     look = F(0, lerp(6, 2, clamp((f.zoom - 0.52) / 0.48, 0, 1)), 0); camSpeed = zin || f.camYaw ? 2.2 : 0.7;
-    if (T > 8 && !f.ended) { f.ended = true; openOverlay('ending'); }
+    if (T > 8 && !f.ended) { f.ended = true; store.set('bday-done', '1'); openOverlay('ending'); }   // from now on, visits are free roam
   }
 
   // night falls once she leaves the ground
@@ -3046,6 +3090,7 @@ for (const r of roamers.filter(x => x.mode === 'roam').slice(0, WATER_SPOTS.leng
 }
 updateBerryHUD(false);
 syncChickens();
+if (store.get('bday-done') === '1') enterPostGame();
 updateTimeUI();
 setInterval(() => { syncChickens(); updateTimeUI(); }, 1000);
 frame();

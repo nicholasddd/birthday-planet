@@ -347,10 +347,10 @@ function addRoamer(i, q, ch, popping) {
   return r;
 }
 function placeRoamer(r) {
-  if (r.mode !== 'float' && r.ch.shades.visible) { r.ch.shades.visible = false; r.ch.root.position.z = 0; }
+  if (r.mode !== 'float' && r.mode !== 'leaveWater' && r.ch.shades.visible) { r.ch.shades.visible = false; r.ch.root.position.z = 0; }
   const d = AY.clone().applyQuaternion(r.q), st = world.standHeight(d);
   // chouchous heading out to (or floating in) the deep water bob on the surface instead of walking the lake bed
-  const floating = r.home?.float && st.wet && (r.mode === 'float' || r.mode === 'toWater');
+  const floating = st.wet && ((r.home?.float && (r.mode === 'float' || r.mode === 'toWater')) || (r.wasFloat && r.mode === 'leaveWater'));
   const h = floating ? world.lake.water - 0.32 + Math.sin(lastT * 2 + r.phase) * 0.05 : st.h;
   r.group.position.copy(d).multiplyScalar(R + h);
   r.group.quaternion.copy(r.q);
@@ -375,13 +375,21 @@ const WATER_SPOTS = [
 let waterT = 2;
 function sendToWater(r, spot, teleport = false) {
   spot.taken = r; r.home = spot; r.t = 0;
+  r.stay = (spot.float ? 45 : 35) + Math.random() * 60;   // seconds it'll spend in (or by) the water before wandering off
   if (teleport) { r.q.setFromUnitVectors(AY, spot.dir).multiply(tq.setFromAxisAngle(AY, Math.random() * 6)); r.mode = spot.float ? 'float' : 'water'; placeRoamer(r); }
   else r.mode = 'toWater';
 }
 function updateWaterhole(dt) {
   waterT -= dt; if (waterT > 0) return; waterT = 1.5;
-  const free = WATER_SPOTS.filter(sp => !sp.taken); if (!free.length) return;   // 8 there already: the rest stay where they are
-  const cands = roamers.filter(r => r.mode === 'roam' && !r.home); if (!cands.length) return;
+  // they take turns: after a while each one climbs out and wanders off, and stays away for a bit
+  for (const r of roamers) {
+    if ((r.mode !== 'water' && r.mode !== 'float') || (r.stay -= 1.5) > 0) continue;
+    r.wasFloat = r.mode === 'float';
+    r.home.taken = null; r.home = null; r.mode = 'leaveWater'; r.t = 0;
+    r.noWaterUntil = lastT + 40 + Math.random() * 50;
+  }
+  const free = WATER_SPOTS.filter(sp => !sp.taken); if (!free.length) return;   // all spots taken: the rest stay where they are
+  const cands = roamers.filter(r => r.mode === 'roam' && !r.home && (r.noWaterUntil || 0) < lastT); if (!cands.length) return;
   sendToWater(cands[Math.floor(Math.random() * cands.length)], free[Math.floor(Math.random() * free.length)]);
 }
 
@@ -394,7 +402,7 @@ const statue = { group: new THREE.Group(), stone: null, mat: null, giant: null, 
   const shells = []; st.root.traverse(o => { if (o.userData.fuzzShell) shells.push(o); });
   shells.forEach(o => o.parent.remove(o));
   st.envelope.visible = false; st.flower.visible = false;
-  st.mouth.parent.remove(st.mouth);
+  st.mouth.parent.remove(st.mouth); st.shades.parent.remove(st.shades);   // a stone chouchou wears no sunglasses
   st.root.traverse(o => { if (o.isMesh) { o.material = statueM; o.castShadow = true; o.receiveShadow = true; } });
   bake(st.root);   // now it's all one piece of stone
   const plinth = new THREE.Mesh(new THREE.CylinderGeometry(1.9, 2.1, 0.35, 28), statueM);
@@ -1409,6 +1417,19 @@ function updateChickens(dt, t) {
       root.rotation.y *= 0.9; root.rotation.x = 0;
       root.position.y = Math.abs(Math.sin(t * 10 + r.phase)) * 0.16;
       root.rotation.z = Math.sin(t * 10 + r.phase) * 0.1;
+      continue;
+    }
+    if (r.mode === 'leaveWater') {                // time's up: turn away from the middle and wade/paddle back to the shore
+      const rel = world.lake.c.clone().multiplyScalar(R).sub(r.group.position).applyQuaternion(r.q.clone().invert());
+      const yaw = Math.atan2(rel.x, rel.z) + Math.PI;
+      r.q.multiply(tq.setFromAxisAngle(AY, Math.atan2(Math.sin(yaw), Math.cos(yaw)) * Math.min(1, dt * 3))).normalize();
+      const od = AY.clone().applyQuaternion(r.q), nq = r.q.clone().multiply(tq.setFromAxisAngle(AX, (1.8 * dt) / R));
+      if (!blocked(od, AY.clone().applyQuaternion(nq), 0.4)) r.q.copy(nq); else r.q.multiply(tq.setFromAxisAngle(AY, dt * 2));
+      const wetNow = world.standHeight(od).wet;
+      root.rotation.set(0, 0, Math.sin(t * 9 + r.phase) * 0.1);
+      root.position.set(0, wetNow ? 0 : Math.abs(Math.sin(t * 9 + r.phase)) * 0.16, 0);
+      if (!wetNow || r.t > 25) { r.mode = 'roam'; r.wasFloat = false; r.turnT = 1 + Math.random() * 2; r.turnRate = 0; r.pause = 0; }   // ashore: off it goes
+      placeRoamer(r);
       continue;
     }
     if (r.mode === 'water') {                     // sit at the water's edge, now and then dipping for a sip

@@ -458,7 +458,7 @@ function wakeStatue() {
   toast('✨ The stone chouchou woke up! Hop up onto the stage');
 }
 function updateStatue(dt, t) {
-  const glowing = allFound() && state !== 'finale';
+  const glowing = allFound() && state !== 'finale' && statue.state !== 'done';
   statue.glow.visible = glowing || statue.glow.material.opacity > 0.01;
   statue.glow.material.opacity = lerp(statue.glow.material.opacity, glowing ? 0.35 + Math.sin(t * 2) * 0.12 : 0, 1 - Math.exp(-dt * 3));
   statue.mat.emissiveIntensity = glowing && statue.state === 'stone' ? 0.25 + Math.sin(t * 2) * 0.15 : 0;
@@ -584,7 +584,7 @@ function updateWeather(dt, t) {
   if (weather.rain > 0.35 && state === 'play' && (shelterPlanT -= dt) <= 0) { shelterPlanT = 3; planShelters(); }   // (re)plan every few seconds while it pours
   if (state === 'play') {
     weather.played += dt; weather.t += dt;
-    if (weather.phase === 'clear' && weather.played > weather.next) { weather.phase = 'rain'; weather.t = 0; }
+    if (weather.phase === 'clear' && weather.played > weather.next) { weather.phase = 'rain'; weather.t = 0; weather.rained = true; }
     if (weather.phase === 'rain' && weather.t > RAIN_LEN) { weather.phase = 'after'; weather.t = 0; }
     if (weather.phase === 'after' && weather.t > AFTER_LEN) { weather.phase = 'clear'; weather.t = 0; weather.next = DEMO ? Infinity : weather.played + 1200 + Math.random() * 1200; }
   }
@@ -691,7 +691,7 @@ function updateButterflies(t) {
 let wishIdx = Number(store.get('bday-wish') || 0), wishWindow = 0, wishTimer = null;
 function makeWish() {
   if (wishWindow <= 0 || state !== 'play' || modalOpen) return;
-  wishWindow = 0; $('btnWish').classList.add('hidden');
+  wishWindow = 0;
   const W = CONFIG.wishes || []; if (!W.length) return;
   const w = W[wishIdx % W.length]; wishIdx++; store.set('bday-wish', String(wishIdx));
   const th = letterLang === 'th';
@@ -852,6 +852,67 @@ function greeting() {
   return '🌙 Still up, baobao?';
 }
 
+// ---------------------------------------------------------------- emoji + key chips, shown only when that key is useful right now
+const sunny = () => { const h = hourOfDay(); return h > 9.5 && h < 16 && weather.rain < 0.1; };
+const CHIPS = [
+  { key: 'E', emo: '🌠', act: () => makeWish(), when: () => wishWindow > 0 },
+  { key: 'I', emo: '🌟', act: () => toggleGear('wand'), when: () => starFx.phase !== 'off' || starsMat.opacity > 0.55 },
+  { key: 'P', emo: '☂️', act: () => toggleGear('parasol'), when: () => gear.parasol || weather.rain > 0.2 || sunny() },
+  { key: 'O', emo: '🛟', act: () => floatPress(), when: () => !!floatHint },
+  { key: 'G', emo: '💃', act: () => startDance(), when: () => dancing <= 0 && !gear.floating && isOnStage() },
+  { key: 'F', emo: '🎶', act: () => whistle(), when: () => known() && (following.length > 0 || roamers.some(r => ['roam', 'watch', 'chase'].includes(r.mode) && r.group.position.distanceTo(girl.root.position) < 14)) },
+  { key: 'C', emo: '📷', act: () => takePhoto(), when: () => rainbow.visible || dancing > 0 || gear.floating || following.length > 0 || isDuskHour(hourOfDay()) || idleT > 12 },
+];
+for (const c of CHIPS) {
+  c.el = document.createElement('button'); c.el.className = 'chip glass hidden';
+  c.el.innerHTML = `<span>${c.emo}</span><kbd>${c.key}</kbd>`;
+  c.el.addEventListener('click', e => { e.preventDefault(); c.act(); });
+  $('keyDock').appendChild(c.el); c.on = false;
+}
+function updateKeyDock() {
+  const play = state === 'play' && !modalOpen && !introLock && t0Ready();
+  const orbiting = state === 'finale' && finale?.ended && !modalOpen;   // during the ending's orbit: photos only
+  for (const c of CHIPS) {
+    const on = play ? !!c.when() : orbiting && c.key === 'C';
+    if (on !== c.on) { c.on = on; c.el.classList.toggle('hidden', !on); }
+  }
+}
+const t0Ready = () => !(lastT < diveUntil);   // not during the opening swoop
+
+// ---------------------------------------------------------------- demo: after the ending, back onto the planet to wander at leisure
+function returnToPlanet() {
+  const f = finale; if (!f?.ended) return;
+  closeOverlay('ending'); $('btnEndReopen').classList.add('hidden'); $('orbitHint').classList.add('hidden');
+  // her, back on her feet; the strawberry boy tucked away
+  scene.attach(girl.root); girl.root.scale.setScalar(1);
+  girl.rig.position.set(0, 0, 0); girl.rig.rotation.set(0, 0, 0); girl.parts.head.rotation.set(0, 0, 0);
+  const couple = f.orbit?.items[0]?.obj; cake.add(bean); bean.visible = false; if (couple) scene.remove(couple);
+  // the giant chouchou floats off for good; everyone else lands back where they were
+  if (f.giant) scene.remove(f.giant.obj);
+  for (const r of roamers) {
+    planetGroup.add(r.group); r.group.scale.setScalar(1);
+    Object.assign(r, { mode: 'roam', home: null, armed: false, turnT: 0, pause: 1 + Math.random() * 2, t: 0 });
+    r.ch.root.position.set(0, 0, 0); r.ch.root.rotation.set(0, 0, 0); r.ch.root.scale.setScalar(1); r.ch.shades.visible = false;
+    for (const ft of r.ch.feet || []) ft.rotation.set(0, 0, 0);
+    for (const l of r.ch.leaves) l.rotation.x = 0;
+    placeRoamer(r);
+  }
+  flung.length = 0; WATER_SPOTS.forEach(sp => { sp.taken = null; });
+  planetGroup.visible = true; planetGroup.scale.setScalar(1); planetGroup.position.set(0, 0, 0);
+  cake.visible = false; shake = 0;
+  statue.state = 'done'; statue.stone.visible = true;
+  finale = null; state = 'play';
+  vy = 0; airborne = false; girlH = floorAt(AY.clone().applyQuaternion(pq), 99);
+  // a gentle swoop back down to her, like the first time
+  dive = { from: camera.position.clone(), look: camLook.clone(), up: camera.up.clone() }; diveUntil = lastT + DIVE;
+  $('hud').classList.remove('hidden'); $('status').classList.remove('hidden');
+  playMusic('planet');
+  if (!weather.rained) weather.next = weather.played + 45;   // a shower still to come
+  setTimeout(() => toast('🌍 Welcome back, traveller · take your time'), DIVE * 1000 + 300);
+  updateTimeUI();
+}
+$('btnBackToPlanet').onclick = returnToPlanet;
+
 function updateLife(dt, t) {
   updateWeather(dt, t);
   updateFireflies(t);
@@ -861,8 +922,7 @@ function updateLife(dt, t) {
   // a wish can be made while a shooting star is crossing (and a moment after)
   wishWindow -= dt;
   if (state === 'play' && shooting.visible && shooting.material.opacity > 0.15) wishWindow = 2.2;
-  $('btnWish').classList.toggle('hidden', !(wishWindow > 0 && state === 'play' && !modalOpen));
-  $('btnDance').classList.toggle('hidden', !(state === 'play' && !modalOpen && !introLock && dancing <= 0 && !gear.floating && isOnStage()));
+  updateKeyDock();
 }
 
 // ============================================================ berries
@@ -1019,7 +1079,7 @@ function updateTimeUI() {
   const next = '';   // after the first hour there are no countdowns: chouchous just turn up
   if (state === 'finale') st.classList.add('hidden');
   else if (collected.size === TOTAL) {
-    st.innerHTML = statue.state === 'awake' ? `${dot}The giant chouchou is waiting on the stone stage` : `${dot}All ${TOTAL} letters found · go back to the stone chouchou`;
+    st.innerHTML = statue.state === 'done' ? `${dot}Take your time · there's more to find` : statue.state === 'awake' ? `${dot}The giant chouchou is waiting on the stone stage` : `${dot}All ${TOTAL} letters found · go back to the stone chouchou`;
   } else if (u === 0) st.innerHTML = `${dot}The planet is quiet… for now`;
   else if (waiting > 0) st.innerHTML = known()
     ? `${dot}${waiting > 1 ? waiting + ' chouchous are' : 'A chouchou is'} stuck${next}`
@@ -1155,13 +1215,13 @@ $('btnStart').onclick = () => {
   $('hud').classList.remove('hidden');
   if (matchMedia('(pointer: coarse)').matches) { $('joystick').classList.remove('hidden'); $('btnJump').classList.remove('hidden'); }
   // first visit: show the controls once she's landed; she can't move until she's read them
-  if (store.get('bday-hint-ack') !== '1') { introLock = true; setTimeout(() => openOverlay('controls'), 2600); }
+  if (store.get('bday-hint-ack') !== '1') { introLock = true; setTimeout(() => { $('controls').classList.remove('full'); openOverlay('controls'); }, 2600); }
   let waiting = 0; for (let i = 0; i < unlockedCount(); i++) if (!pulled.has(i)) waiting++;
   if (waiting) setTimeout(() => toast(known() ? `🥬 ${waiting > 1 ? waiting + ' chouchous are' : 'A chouchou is'} waiting for you` : '✨ Something is glowing on the planet…'), 2600);
 };
 $('btnIntroBell').onclick = askNotify;
 $('btnControlsOk').onclick = () => { store.set('bday-hint-ack', '1'); introLock = false; closeOverlay('controls'); };
-$('btnHelp').onclick = () => openOverlay('controls');
+$('btnHelp').onclick = () => { $('controls').classList.add('full'); openOverlay('controls'); };
 $('btnFsOk').onclick = () => closeOverlay('firstSeen');
 // Enter / Space dismiss these little cards from the keyboard
 addEventListener('keydown', e => {
@@ -1350,6 +1410,7 @@ if (DEMO) {
   $('gate').querySelector('h1').textContent = 'Whisper today\'s date';
   $('gate').querySelector('p').textContent = 'Enter today\'s date: the day, then the month.';
   $('btnBell').classList.add('hidden'); $('btnIntroBell').classList.add('hidden');
+  $('endMore').classList.remove('hidden'); $('btnBackToPlanet').classList.remove('hidden'); $('btnEndCat').classList.add('soft');
 }
 $('giftTitle').textContent = `Give the ${TOTAL} flowers to the giant chouchou?`;
 updateBell();
@@ -1405,7 +1466,6 @@ addEventListener('keydown', e => {
   if (!e.repeat && e.code === 'KeyF') whistle();
   if (!e.repeat && e.code === 'KeyG') startDance();
 });
-$('btnFloat').addEventListener('pointerdown', e => { e.preventDefault(); floatPress(); });
 $('btnPull').addEventListener('pointerdown', e => { e.preventDefault(); pullPress(); });
 // SPACE does whatever makes sense where she is: take a letter, pull, feed, pick — or just jump
 function spaceAction() {
@@ -1633,11 +1693,7 @@ function updatePlayer(dt, t) {
     if (!gear.floating && here.angleTo(world.lake.c) < world.lake.r * 1.5 && (onLagoon(here) || stepToward(here, 1, 2.5 / R, onLagoon))) fh = 'on';
     else if (gear.floating && stepToward(here, -1, 2.5 / R, d => !world.standHeight(d).wet)) fh = 'off';
   }
-  if (fh !== floatHint) {
-    floatHint = fh;
-    $('btnFloat').classList.toggle('hidden', !fh);
-    if (fh) $('btnFloat').innerHTML = fh === 'on' ? '🛟 <b>O</b> sit on the float' : '🛟 <b>O</b> hop off';
-  }
+  floatHint = fh;   // shown as the 🛟 O chip
   if (nearChicken) $('pullFill').style.width = `${Math.round(nearChicken.userData.pull * 100)}%`;
 
   // camera follows behind & above, always looking the same way
@@ -2309,8 +2365,7 @@ function startFinale() {
   wantedTrack = null; music?.stop(3);
   state = 'finale';
   gear.wand = gear.parasol = gear.floating = false; wandHolder.visible = parasolHolder.visible = floatRing.root.visible = sky1.visible = false; wandLight.intensity = 0; starFx.phase = 'off';
-  $('btnFloat').classList.add('hidden');
-  releaseFollowers(); dancing = 0; weather.phase = 'clear'; $('btnWish').classList.add('hidden'); $('btnDance').classList.add('hidden');
+  releaseFollowers(); dancing = 0; weather.phase = 'clear';
   $('hud').classList.add('hidden');   // the finale is a cinematic: no HUD
   $('joystick').classList.add('hidden'); $('btnJump').classList.add('hidden');
   arrowPivot.visible = false;
@@ -2837,7 +2892,7 @@ function updateShootingStar(dt) {
     shooting.position.addScaledVector(shoot.vel, dt);
     m.opacity = Math.sin(Math.min(1, k) * Math.PI) * starsMat.opacity;
     shooting.scale.set(lerp(8, 34, Math.min(1, k * 2.5)), 0.9, 1);
-    if (k >= 1) { shooting.visible = false; shoot.wait = waitingMode ? 2 + Math.random() * 5 : state === 'play' ? (DEMO ? 6 + Math.random() * 8 : 18 + Math.random() * 25) : 5 + Math.random() * 12; }   // lots while she waits; rarer (wish-worthy) in play
+    if (k >= 1) { shooting.visible = false; shoot.wait = waitingMode ? 2 + Math.random() * 5 : state === 'play' ? (DEMO ? 10 + Math.random() * 12 : 18 + Math.random() * 25) : 5 + Math.random() * 12; }   // lots while she waits; rarer (wish-worthy) in play
     return;
   }
   if (starsMat.opacity < 0.5 || (shoot.wait -= dt) > 0) return;

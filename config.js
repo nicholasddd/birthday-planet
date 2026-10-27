@@ -32,44 +32,43 @@ export const CONFIG = {
   // assets/music/ and fill these in, e.g. planet: 'assets/music/planet.mp3'
   music: { waiting: '', planet: '', ending: '' },
 
-  // Wishes: when a shooting star crosses the night sky she can press E to make a wish, and one of these
-  // floats up (in order, then round again). Swap in your own — en + th.
+  // Wishes: when a shooting star crosses the night sky she can press E, and one of these appears (picked at random).
   wishes: [
-    { en: 'I wish for a slow Sunday morning with you, and nowhere at all to be.', th: 'ขอให้มีเช้าวันอาทิตย์ช้า ๆ กับเธอ โดยไม่ต้องรีบไปไหนเลย' },
-    { en: 'I wish that every city we get lost in feels like an adventure, not a mistake.', th: 'ขอให้ทุกเมืองที่เราหลงทาง เป็นการผจญภัย ไม่ใช่ความผิดพลาด' },
-    { en: 'I wish for a thousand more ordinary days with you.', th: 'ขอให้ได้มีวันธรรมดา ๆ กับเธออีกนับพันวัน' },
-    { en: 'I wish you a perfect matcha, exactly when you need it.', th: 'ขอให้เธอได้มัทฉะแก้วที่อร่อยพอดี ในวันที่เธอต้องการมันที่สุด' },
-    { en: 'I wish that you always know how loved you are, even on the quiet days.', th: 'ขอให้เธอรู้เสมอว่าเธอเป็นที่รักแค่ไหน แม้ในวันที่เงียบเหงา' },
-    { en: 'I wish for long walks, warm hands, and a sky full of stars like this one.', th: 'ขอให้มีการเดินเล่นนาน ๆ มือที่อบอุ่น และท้องฟ้าที่เต็มไปด้วยดาวแบบนี้' },
-    { en: 'I wish Chouchou a long, happy, extremely spoiled life.', th: 'ขอให้ Chouchou มีชีวิตที่ยืนยาว มีความสุข และได้รับการเอาใจสุด ๆ' },
-    { en: 'I wish that your dreams find you, one by one, right on time.', th: 'ขอให้ความฝันของเธอค่อย ๆ มาถึงทีละอย่าง ในเวลาที่เหมาะสม' },
-    { en: 'I wish to make you laugh until your tummy hurts, at least once a week.', th: 'ขอให้ผมทำให้เธอหัวเราะจนท้องแข็ง อย่างน้อยสัปดาห์ละครั้ง' },
-    { en: 'I wish for every prawn to be yours, and every bean to be mine.', th: 'ขอให้กุ้งทุกตัวเป็นของเธอ และถั่วทุกเม็ดเป็นของผม' },
-    { en: 'I wish that wherever we go, we always find our way home to each other.', th: 'ขอให้ไม่ว่าเราจะไปที่ไหน เราจะหาทางกลับมาหากันได้เสมอ' },
-    { en: 'I wish for you to be as gentle with yourself as I want to be with you.', th: 'ขอให้เธออ่อนโยนกับตัวเอง แบบที่ผมอยากอ่อนโยนกับเธอ' },
+    { en: 'We were living whole lives without knowing each other. I’m so glad they eventually crossed.', th: 'เราเคยใช้ชีวิตทั้งชีวิตโดยไม่รู้จักกัน ผมดีใจเหลือเกินที่ในที่สุดชีวิตของเราก็มาบรรจบกัน' },
+    { en: 'Sometimes I think about how easily we could have missed each other. It makes having you feel extraordinary.', th: 'บางครั้งผมคิดว่าเราเกือบจะพลาดกันไปได้ง่ายแค่ไหน มันทำให้การมีเธอเป็นเรื่องพิเศษเหลือเกิน' },
+    { en: 'There was a time when your name was unfamiliar to me. Now seeing it on my screen changes my day.', th: 'เคยมีช่วงเวลาที่ชื่อของเธอยังแปลกหน้าสำหรับผม แต่ตอนนี้ แค่เห็นมันบนหน้าจอ วันของผมก็เปลี่ยนไป' },
+    { en: 'When we first started talking, I couldn’t have known how much those conversations would come to mean.', th: 'ตอนที่เราเริ่มคุยกันใหม่ ๆ ผมไม่มีทางรู้เลยว่าบทสนทนาเหล่านั้นจะมีความหมายกับผมมากเพียงนี้' },
+    { en: 'I’m lucky that meeting you became knowing you and that there is still so much of you to discover.', th: 'ผมโชคดีที่การได้พบเธอกลายเป็นการได้รู้จักเธอ และยังมีอีกมากมายในตัวเธอให้ผมได้ค้นพบ' },
+    { en: 'Somewhere along the way, you became the person I wanted to tell the smallest things to.', th: 'ไม่รู้ตั้งแต่เมื่อไหร่ เธอกลายเป็นคนที่ผมอยากเล่าเรื่องเล็ก ๆ น้อย ๆ ให้ฟังทุกเรื่อง' },
+    { en: 'One of my favourite parts of finding you is getting to be someone you share your life with, too.', th: 'หนึ่งในสิ่งที่ผมชอบที่สุดของการได้พบเธอ คือการได้เป็นคนที่เธอแบ่งปันชีวิตด้วยเช่นกัน' },
+    { en: 'I think of all the things I would never have laughed about if I hadn’t met you.', th: 'ผมนึกถึงเรื่องมากมายที่ผมคงไม่ได้หัวเราะ ถ้าไม่ได้พบเธอ' },
+    { en: 'I hope I keep noticing how lucky I am, even when being together feels familiar.', th: 'ผมหวังว่าจะยังรู้สึกถึงความโชคดีนี้เสมอ แม้ในวันที่การอยู่ด้วยกันกลายเป็นเรื่องคุ้นเคย' },
+    { en: 'We had no say in all the things that brought us here. We have a say in how we love each other.', th: 'เราไม่ได้เลือกทุกสิ่งที่พาเรามาถึงตรงนี้ แต่เราเลือกได้ว่าจะรักกันอย่างไร' },
+    { en: 'If I could return to our first conversation, I’d be excited for myself. I’d know who I was about to meet.', th: 'ถ้าผมย้อนกลับไปยังบทสนทนาแรกของเราได้ ผมคงตื่นเต้นแทนตัวเอง เพราะผมจะรู้ว่ากำลังจะได้พบใคร' },
+    { en: 'Cream, I can’t take credit for the luck of finding you. I want to take care of what came from it.', th: 'Cream ผมไม่อาจอ้างความดีความชอบจากโชคที่ได้พบเธอ แต่ผมอยากดูแลทุกสิ่งที่เกิดขึ้นจากโชคนั้น' },
   ],
 
-  // Messages in bottles: six wash up around the lagoon over the day (the 6th by the river's spring).
-  // Put real memories here — and optionally a photo, e.g. image: 'assets/bottles/1.jpg'
+  // Messages in bottles: every so often one washes up somewhere on the shore; opening it reveals one of these
+  // at random (ones she hasn't read yet first). Optionally add a photo, e.g. image: 'assets/bottles/1.jpg'
   bottles: [
-    { title: 'A note from Chouchou', th_title: 'จดหมายจาก Chouchou', image: '',
-      en: 'Dear Cream,\nI am a small chicken and I cannot write very well. But I want you to know you give the best hugs on this whole planet.\n— Chouchou 🐣',
-      th: 'ถึง Cream\nผมเป็นไก่ตัวเล็ก ๆ เลยเขียนหนังสือไม่ค่อยเก่ง แต่อยากให้รู้ว่าเธอกอดเก่งที่สุดบนดาวดวงนี้เลยนะ\n— Chouchou 🐣' },
-    { title: 'Things I love about you, part one', th_title: 'สิ่งที่ผมรักในตัวเธอ ตอนที่หนึ่ง', image: '',
-      en: 'Your laugh. Your stubbornness. The way you care so much about everything.\nI could keep going, but the bottle is small.',
-      th: 'เสียงหัวเราะของเธอ ความดื้อของเธอ และการที่เธอใส่ใจทุกอย่างมากเหลือเกิน\nผมเขียนต่อได้อีกยาว แต่ขวดมันเล็กไปหน่อย' },
-    { title: 'For a rainy day', th_title: 'สำหรับวันที่ฝนตก', image: '',
-      en: 'If today feels heavy, put it down for a moment.\nThe planet will wait for you. So will I.',
-      th: 'ถ้าวันนี้รู้สึกหนักใจ ลองวางมันลงสักครู่นะ\nดาวดวงนี้จะรอเธอ และผมก็เช่นกัน' },
-    { title: 'A tiny promise', th_title: 'สัญญาเล็ก ๆ', image: '',
-      en: 'I promise to always save you the last prawn.\n(Mostly.)',
-      th: 'ผมสัญญาว่าจะเก็บกุ้งตัวสุดท้ายไว้ให้เธอเสมอ\n(เกือบทุกครั้งนะ)' },
-    { title: 'Found at sea', th_title: 'พบกลางทะเล', image: '',
-      en: 'Somewhere far away, someone is thinking about you right now.\nIt\'s me. It\'s always me.',
-      th: 'ที่ไหนสักแห่งไกลออกไป มีใครคนหนึ่งกำลังคิดถึงเธออยู่ตอนนี้\nก็ผมนี่แหละ ผมเสมอ' },
-    { title: 'For later', th_title: 'สำหรับทีหลัง', image: '',
-      en: 'When you finish this little planet, come and find me.\nI have one more hug to deliver in person.',
-      th: 'เล่นดาวดวงนี้จบเมื่อไหร่ มาหาผมนะ\nผมมีกอดอีกหนึ่งครั้งที่ต้องส่งให้ด้วยตัวเอง' },
+    { title: 'Hundreds of ordinary days', th_title: 'วันธรรมดาหลายร้อยวัน', image: '',
+      en: 'More than two years, Cream. That’s hundreds of ordinary days we’ve found a way to share from different places.',
+      th: 'มากกว่าสองปีแล้วนะ Cream นั่นคือวันธรรมดาหลายร้อยวัน ที่เราหาทางแบ่งปันกันจากคนละที่' },
+    { title: 'What we’ve built', th_title: 'สิ่งที่เราสร้างขึ้น', image: '',
+      en: 'Every call, every difficult conversation, every bit of time we’ve made for each other has become part of what we’ve built.',
+      th: 'ทุกสายที่โทรหากัน ทุกบทสนทนาที่ยากลำบาก ทุกเวลาที่เราเจียดให้กัน ล้วนกลายเป็นส่วนหนึ่งของสิ่งที่เราสร้างขึ้นมาด้วยกัน' },
+    { title: 'Keeping at it', th_title: 'ไม่ยอมแพ้', image: '',
+      en: 'We’ve put so much effort into things other couples get to take for granted. I’m proud of us for keeping at it.',
+      th: 'เราทุ่มเทให้กับหลายสิ่งที่คู่รักคู่อื่นได้มาโดยไม่ต้องพยายาม ผมภูมิใจในตัวเราที่ยังไม่ยอมแพ้' },
+    { title: 'Our life together', th_title: 'ชีวิตที่เรามีร่วมกัน', image: '',
+      en: 'These years have been part of our life together. We’ve grown to know and love each other through them.',
+      th: 'หลายปีที่ผ่านมานี้คือส่วนหนึ่งของชีวิตที่เรามีร่วมกัน เราได้รู้จักและรักกันมากขึ้นผ่านมัน' },
+    { title: 'Over two years', th_title: 'มากกว่าสองปี', image: '',
+      en: 'There’s something wonderful about being able to say, “We’ve been doing this for over two years.” We know what those words have taken.',
+      th: 'มีบางอย่างที่วิเศษในการได้พูดว่า “เราอยู่ด้วยกันมาเกินสองปีแล้วนะ” เพราะเรารู้ดีว่าคำพูดนั้นต้องแลกมาด้วยอะไร' },
+    { title: 'Closing the distance', th_title: 'เมื่อระยะทางหดลง', image: '',
+      en: 'Cream, when I think about closing the distance, I think about everything we’ll be bringing with us: a relationship we’ve already worked hard for.',
+      th: 'Cream เมื่อผมนึกถึงวันที่ระยะทางระหว่างเราหดลง ผมนึกถึงทุกสิ่งที่เราจะพาติดตัวไปด้วย: ความสัมพันธ์ที่เราได้ทุ่มเทสร้างมันมาแล้วอย่างเต็มที่' },
   ],
 
   // Changes where the 24 flowers sit on the planet (any number)

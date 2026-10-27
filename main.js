@@ -688,12 +688,15 @@ function updateButterflies(t) {
 }
 
 // ---------------------------------------------------------------- wishes on shooting stars (E)
-let wishIdx = Number(store.get('bday-wish') || 0), wishWindow = 0, wishTimer = null;
+let lastWish = Number(store.get('bday-wish-last') ?? -1), wishWindow = 0, wishTimer = null;
 function makeWish() {
   if (wishWindow <= 0 || state !== 'play' || modalOpen) return;
   wishWindow = 0;
   const W = CONFIG.wishes || []; if (!W.length) return;
-  const w = W[wishIdx % W.length]; wishIdx++; store.set('bday-wish', String(wishIdx));
+  let k = Math.floor(Math.random() * W.length);   // one at random — never the same one twice in a row
+  if (W.length > 1 && k === lastWish) k = (k + 1 + Math.floor(Math.random() * (W.length - 1))) % W.length;
+  lastWish = k; store.set('bday-wish-last', String(k));
+  const w = W[k];
   const th = letterLang === 'th';
   $('wishText').textContent = th ? w.th : w.en; $('wishText').classList.toggle('th', th);
   $('wishCard').classList.add('show'); clearTimeout(wishTimer); wishTimer = setTimeout(() => $('wishCard').classList.remove('show'), 8000);
@@ -702,31 +705,40 @@ function makeWish() {
 }
 
 // ---------------------------------------------------------------- messages in bottles
-const bottleState = new Set((() => { try { return JSON.parse(store.get('bday-bottles') || '[]'); } catch { return []; } })());
-const BOTTLE_AT = DEMO ? [1, 2] : [3, 7, 11, 15, 19, 23];   // each washes up once this many chouchous have arrived
-const bottleSpots = [0.94, 2.19, 3.44, 4.7, 5.96].map(a => shoreSpot(a));
-{ // the sixth: at the edge of the river's little spring
+const bottleState = new Set((() => { try { return JSON.parse(store.get('bday-bottles') || '[]'); } catch { return []; } })());   // messages she has read
+// Every so often a single bottle washes up somewhere on the shore; opening it reveals a message picked at random
+// (ones she hasn't read yet first). The next one turns up a while later, somewhere else.
+const BOTTLE_FIRST = DEMO ? 1 : 2;                                         // the first appears once this many chouchous have arrived
+const bottleGap = () => (DEMO ? 50 + Math.random() * 40 : (50 + Math.random() * 60) * 60) * 1000;   // demo: ~1 min · real: 50–110 min
+const bottleSpots = [0.4, 0.94, 1.6, 2.19, 2.8, 3.44, 4.1, 4.7, 5.35, 5.96].map(a => shoreSpot(a));
+{ // one more spot: at the edge of the river's little spring
   const s = world.spring, ax = V().crossVectors(s, world.lake.c).normalize();
   let d = s.clone();
   for (let a = 0.005; a < 0.3; a += 0.005) { d = s.clone().applyAxisAngle(ax, -a); if (!world.standHeight(d).wet) break; }
   bottleSpots.push(d.applyAxisAngle(ax, -0.01));
 }
-const bottles = (CONFIG.bottles || []).slice(0, bottleSpots.length).map((b, k) => {
-  const mesh = makeBottle(), d = bottleSpots[k]; mesh.visible = false; planetGroup.add(mesh);
-  mesh.position.copy(d).multiplyScalar(R + world.standHeight(d).h + 0.04);
-  mesh.quaternion.setFromUnitVectors(AY, d).multiply(new THREE.Quaternion().setFromAxisAngle(AY, k * 1.3));
-  return { k, b, mesh, d, base: mesh.position.clone() };
-});
-let nearBottle = null, bottlesSeen = -1;
+let bottleNext = (() => { try { return JSON.parse(store.get('bday-bottle') || 'null'); } catch { return null; } })();   // { spot, at }
+function scheduleBottle(delay) {
+  let spot = Math.floor(Math.random() * bottleSpots.length);
+  if (bottleNext && spot === bottleNext.spot) spot = (spot + 1 + Math.floor(Math.random() * (bottleSpots.length - 1))) % bottleSpots.length;
+  bottleNext = { spot, at: now() + delay }; store.set('bday-bottle', JSON.stringify(bottleNext));
+}
+if (!bottleNext) scheduleBottle(0);
+const bottleMesh = makeBottle(); bottleMesh.visible = false; planetGroup.add(bottleMesh);
+const bottles = [{ mesh: bottleMesh, spot: -1, base: V(), d: V() }];   // (one bottle, moved to wherever it washes up)
+let nearBottle = null, bottleWasOut = null;
 function updateBottles(t) {
-  const u = unlockedCount(); let n = 0;
-  for (const B of bottles) {
-    const on = u >= BOTTLE_AT[B.k] && !bottleState.has(B.k) && state !== 'finale';
-    B.mesh.visible = on;
-    if (on) { n++; B.mesh.position.copy(B.base).addScaledVector(B.d, Math.sin(t * 1.5 + B.k) * 0.03); }
+  const B = bottles[0], msgs = CONFIG.bottles || [];
+  const out = msgs.length > 0 && !!bottleNext && now() >= bottleNext.at && unlockedCount() >= BOTTLE_FIRST && state !== 'finale';
+  if (out && B.spot !== bottleNext.spot) {   // place it where this one washed up
+    B.spot = bottleNext.spot; B.d.copy(bottleSpots[B.spot]);
+    B.base.copy(B.d).multiplyScalar(R + world.standHeight(B.d).h + 0.04);
+    B.mesh.quaternion.setFromUnitVectors(AY, B.d).multiply(new THREE.Quaternion().setFromAxisAngle(AY, B.spot * 1.3));
   }
-  if (bottlesSeen >= 0 && n > bottlesSeen && state === 'play') { toast('🍾 Something washed up by the water…'); tone(988, 0, 0.4, 0.05, 'sine'); tone(1318, 0.15, 0.5, 0.04, 'sine'); }
-  bottlesSeen = n;
+  B.mesh.visible = out;
+  if (out) B.mesh.position.copy(B.base).addScaledVector(B.d, Math.sin(t * 1.5) * 0.03);
+  if (bottleWasOut === false && out && state === 'play') { toast('🍾 Something washed up by the water…'); tone(988, 0, 0.4, 0.05, 'sine'); tone(1318, 0.15, 0.5, 0.04, 'sine'); }
+  bottleWasOut = out;
 }
 function showBottle(k) {
   const b = (CONFIG.bottles || [])[k]; if (!b) return;
@@ -738,9 +750,14 @@ function showBottle(k) {
   openOverlay('bottleCard');
 }
 function openBottle(B) {
-  bottleState.add(B.k); store.set('bday-bottles', JSON.stringify([...bottleState]));
+  const msgs = CONFIG.bottles || [], all = msgs.map((_, i) => i);
+  const unread = all.filter(i => !bottleState.has(i)), pool = unread.length ? unread : all;
+  const k = pool[Math.floor(Math.random() * pool.length)];
+  bottleState.add(k); store.set('bday-bottles', JSON.stringify([...bottleState]));
   burst(B.mesh.position.clone(), 0xffffff, 16, 3, 0.5, 1); tone(660, 0, 0.2, 0.06, 'triangle'); tone(990, 0.1, 0.4, 0.05, 'triangle');
-  showBottle(B.k);
+  scheduleBottle(bottleGap());   // the next one washes up a while later, somewhere else
+  B.mesh.visible = false; nearBottle = null;
+  showBottle(k);
 }
 $('btnCloseBottle').onclick = () => closeOverlay('bottleCard');
 

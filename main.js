@@ -12,11 +12,20 @@ import { bake } from './perf.js';
 import { createMusic } from './music.js';
 import { makeStarWand, makeParasol, makeFloat } from './props.js';
 import { LETTERS_TH, SIGN_TH } from './letters-th.js';
+import { DEMO_CONFIG } from './demo.js';
+
+// DEMO (?demo): a ten-minute taste for friends and strangers — 3 chouchous, a whole day squeezed into
+// ten minutes, its own words (nothing personal), and its own progress kept per browser tab.
+const DEMO = new URLSearchParams(location.search).has('demo');
+if (DEMO) Object.assign(CONFIG, DEMO_CONFIG);
+const THAI = DEMO ? DEMO_CONFIG.lettersTh : LETTERS_TH, SIGN = DEMO ? { en: DEMO_CONFIG.signEn, th: DEMO_CONFIG.signTh } : { en: 'With all my love,', th: SIGN_TH };
 import { makeFireflies, makeButterflies, makeRain, makeRainbow, makeBottle, zTex, noteTex } from './life.js';
 
 // ============================================================ utils
-const TOTAL = 24;
+const TOTAL = DEMO ? 3 : 24;
 const HOUR = 3600 * 1000;
+const SLOT = DEMO ? 150 * 1000 : HOUR;        // time between chouchous
+const SKY_HOUR = DEMO ? 25 * 1000 : HOUR;     // one hour of sky (the demo runs a whole day in 10 minutes)
 const V = (x = 0, y = 0, z = 0) => new THREE.Vector3(x, y, z);
 const AX = V(1, 0, 0), AY = V(0, 1, 0);
 const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
@@ -25,23 +34,31 @@ const ease = t => (t < 0.5 ? 4 * t * t * t : 1 - Math.pow(-2 * t + 2, 3) / 2);
 const easeOutBack = t => { const c1 = 1.70158, c3 = c1 + 1; return 1 + c3 * Math.pow(t - 1, 3) + c1 * Math.pow(t - 1, 2); };
 const $ = id => document.getElementById(id);
 
-const store = {
-  get(k) { try { return localStorage.getItem(k); } catch { return null; } },
-  set(k, v) { try { localStorage.setItem(k, v); } catch {} },
-};
+// progress is remembered in this browser; the demo keeps its own, per tab, so every visit starts fresh
+const store = (() => {
+  const S = () => (DEMO ? sessionStorage : localStorage), pre = DEMO ? 'demo:' : '';
+  return {
+    get(k) { try { return S().getItem(pre + k); } catch { return null; } },
+    set(k, v) { try { S().setItem(pre + k, v); } catch {} },
+  };
+})();
 
 // ============================================================ time + progress
 const params = new URLSearchParams(location.search);
 const DEBUG = params.has('debug');
 let timeOffset = DEBUG ? Number(store.get('bday-offset') || 0) : 0;
-const startMs = new Date(CONFIG.startTime).getTime();
-const openMs = new Date(CONFIG.openTime || CONFIG.startTime).getTime();   // the waiting page ends here
+let startMs = new Date(CONFIG.startTime).getTime();
+let openMs = new Date(CONFIG.openTime || CONFIG.startTime).getTime();   // the waiting page ends here
+if (DEMO) {   // a 10-second countdown from arriving; the first chouchou 30 s after stepping inside
+  openMs = Number(store.get('open')) || Date.now() + 10000; store.set('open', String(openMs));
+  startMs = Number(store.get('start')) || Infinity;
+}
 const now = () => Date.now() + timeOffset;
-const unlockTime = i => startMs + i * HOUR;
+const unlockTime = i => startMs + i * SLOT;
 function unlockedCount() {
   const t = now() - startMs;
-  if (t < 0) return 0;
-  return Math.min(TOTAL, Math.floor(t / HOUR) + 1);
+  if (!(t >= 0)) return 0;
+  return Math.min(TOTAL, Math.floor(t / SLOT) + 1);
 }
 let collected = new Set();
 try { collected = new Set(JSON.parse(store.get('bday-collected') || '[]')); } catch {}
@@ -507,7 +524,8 @@ function walkToward(r, dir, speed, dt, arrive = 1) {
 const hopAnim = (r, t, k = 0.16, f = 9) => { r.ch.root.position.y = Math.abs(Math.sin(t * f + r.phase)) * k; r.ch.root.rotation.set(0, 0, Math.sin(t * f + r.phase) * 0.1); };
 
 // ---------------------------------------------------------------- weather: now and then a soft rain shower, then a rainbow
-const weather = { phase: 'clear', t: 0, rain: 0, played: 0, next: 900 + Math.random() * 900 };
+const weather = { phase: 'clear', t: 0, rain: 0, played: 0, next: DEMO ? 200 : 900 + Math.random() * 900 };   // the demo gets one shower, about 3 minutes in
+const RAIN_LEN = DEMO ? 45 : 100, AFTER_LEN = DEMO ? 40 : 60;
 const rain = makeRain(450); scene.add(rain.lines);
 const rainbow = makeRainbow(); scene.add(rainbow);
 const RAIN_TOP = new THREE.Color(0x56627a), RAIN_BOTTOM = new THREE.Color(0x9aa6b8);
@@ -567,8 +585,8 @@ function updateWeather(dt, t) {
   if (state === 'play') {
     weather.played += dt; weather.t += dt;
     if (weather.phase === 'clear' && weather.played > weather.next) { weather.phase = 'rain'; weather.t = 0; }
-    if (weather.phase === 'rain' && weather.t > 100) { weather.phase = 'after'; weather.t = 0; }
-    if (weather.phase === 'after' && weather.t > 60) { weather.phase = 'clear'; weather.t = 0; weather.next = weather.played + 1200 + Math.random() * 1200; }
+    if (weather.phase === 'rain' && weather.t > RAIN_LEN) { weather.phase = 'after'; weather.t = 0; }
+    if (weather.phase === 'after' && weather.t > AFTER_LEN) { weather.phase = 'clear'; weather.t = 0; weather.next = DEMO ? Infinity : weather.played + 1200 + Math.random() * 1200; }
   }
   const want = state === 'play' && weather.phase === 'rain' ? 1 : 0;
   weather.rain = want ? Math.min(1, weather.rain + dt / 6) : Math.max(0, weather.rain - dt / 8);
@@ -610,7 +628,7 @@ function updateWeather(dt, t) {
   }
   // the rainbow, afterwards (in daylight)
   const h = hourOfDay(), daylight = h > 6.5 && h < 17.5;
-  const rb = state === 'play' && weather.phase === 'after' && daylight && weather.t < 48 ? 0.75 : 0;
+  const rb = state === 'play' && weather.phase === 'after' && daylight && weather.t < AFTER_LEN - 12 ? 0.75 : 0;
   rainbow.material.opacity = lerp(rainbow.material.opacity, rb, 1 - Math.exp(-dt * 0.5));
   rainbow.visible = rainbow.material.opacity > 0.01;
   if (rainbow.visible) {
@@ -685,7 +703,7 @@ function makeWish() {
 
 // ---------------------------------------------------------------- messages in bottles
 const bottleState = new Set((() => { try { return JSON.parse(store.get('bday-bottles') || '[]'); } catch { return []; } })());
-const BOTTLE_AT = [3, 7, 11, 15, 19, 23];   // each washes up once this many chouchous have arrived
+const BOTTLE_AT = DEMO ? [1, 2] : [3, 7, 11, 15, 19, 23];   // each washes up once this many chouchous have arrived
 const bottleSpots = [0.94, 2.19, 3.44, 4.7, 5.96].map(a => shoreSpot(a));
 { // the sixth: at the edge of the river's little spring
   const s = world.spring, ax = V().crossVectors(s, world.lake.c).normalize();
@@ -827,6 +845,7 @@ $('btnClosePhoto').onclick = () => { closeOverlay('photoCard'); if (finale?.ende
 // ---------------------------------------------------------------- a hello that depends on the hour
 function greeting() {
   const h = hourOfDay();
+  if (DEMO) return h >= 5 && h < 17 ? '☀️ Welcome, traveller' : '🌙 Welcome, traveller';
   if (h >= 5 && h < 11) return '☀️ Good morning, Cream';
   if (h >= 11 && h < 17) return '🌤️ Good afternoon, baobao';
   if (h >= 17 && h < 21) return '🌇 Good evening, my love';
@@ -987,7 +1006,8 @@ async function askNotify() {
 }
 
 function updateTimeUI() {
-  $('clock').textContent = new Date(now()).toLocaleString([], { weekday: 'short', hour: '2-digit', minute: '2-digit' });
+  { const h = hourOfDay(), p2 = n => String(n).padStart(2, '0');
+    $('clock').textContent = DEMO ? `${p2(Math.floor(h))}:${p2(Math.floor((h % 1) * 60))}` : new Date(now()).toLocaleString([], { weekday: 'short', hour: '2-digit', minute: '2-digit' }); }
   const u = unlockedCount();
   let waiting = 0, holding = 0;
   for (let i = 0; i < u; i++) { if (!pulled.has(i)) waiting++; else if (!collected.has(i)) holding++; }
@@ -999,7 +1019,7 @@ function updateTimeUI() {
   const next = '';   // after the first hour there are no countdowns: chouchous just turn up
   if (state === 'finale') st.classList.add('hidden');
   else if (collected.size === TOTAL) {
-    st.innerHTML = statue.state === 'awake' ? `${dot}The giant chouchou is waiting on the stone stage` : `${dot}All 24 letters found · go back to the stone chouchou`;
+    st.innerHTML = statue.state === 'awake' ? `${dot}The giant chouchou is waiting on the stone stage` : `${dot}All ${TOTAL} letters found · go back to the stone chouchou`;
   } else if (u === 0) st.innerHTML = `${dot}The planet is quiet… for now`;
   else if (waiting > 0) st.innerHTML = known()
     ? `${dot}${waiting > 1 ? waiting + ' chouchous are' : 'A chouchou is'} stuck${next}`
@@ -1061,7 +1081,7 @@ function renderCatalogue() {
       el.onclick = () => closeOverlay('catalogue');
     } else {
       el.className = 'slot locked';
-      el.innerHTML = `<span class="em">🔒</span><b>Hour ${i + 1}</b><span>${new Date(unlockTime(i)).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>`;
+      el.innerHTML = `<span class="em">🔒</span><b>Hour ${i + 1}</b><span>${DEMO ? 'soon' : new Date(unlockTime(i)).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>`;
     }
     grid.appendChild(el);
   }
@@ -1090,12 +1110,12 @@ let letterLang = store.get('bday-lang') === 'th' ? 'th' : 'en', openLetterIdx = 
 $('btnLang').onclick = () => { letterLang = letterLang === 'th' ? 'en' : 'th'; store.set('bday-lang', letterLang); openLetter(openLetterIdx, true); document.fonts?.load('20px Mali').then(fitLetter); };
 function openLetter(i, relang = false) {
   openLetterIdx = i;
-  const EN = CONFIG.letters[i] || {}, th = letterLang === 'th' && LETTERS_TH[i];
-  const L = th ? { ...EN, ...LETTERS_TH[i] } : EN;
+  const EN = CONFIG.letters[i] || {}, th = letterLang === 'th' && THAI[i];
+  const L = th ? { ...EN, ...THAI[i] } : EN;
   $('letter').classList.toggle('th', !!th);
   $('btnLang').textContent = th ? 'EN' : 'ไทย';
-  $('letterWith').textContent = th ? SIGN_TH : 'With all my love,';
-  $('letterHour').textContent = L.time ? `${L.time} · ${L.n}` : `chouchou ${i + 1} of ${TOTAL}`;
+  $('letterWith').textContent = th ? SIGN.th : SIGN.en;
+  $('letterHour').textContent = L.time ? `${L.time} · ${L.n}` : L.n ? `letter ${L.n}` : `chouchou ${i + 1} of ${TOTAL}`;
   $('letterTitle').textContent = L.title || ''; $('letterSub').textContent = L.sub || '';
   $('mono').textContent = $('sealMono').textContent = CONFIG.monogram || '♥';
   $('letterGreet').textContent = L.greet || `My dearest ${CONFIG.herName.replace(/^my\s+/i, '')},`;
@@ -1128,6 +1148,7 @@ $('btnStart').onclick = () => {
   getAudio(); playMusic('planet');
   closeOverlay('intro');
   state = 'play'; diveUntil = lastT + DIVE;
+  if (DEMO && !Number.isFinite(startMs)) { startMs = now() + 30000; store.set('start', String(startMs)); }
   setTimeout(() => toast(greeting()), DIVE * 1000 + 400);
   girl.root.visible = true;
   dive = { from: camera.position.clone(), look: camLook.clone(), up: camera.up.clone() };
@@ -1232,7 +1253,9 @@ let unlocking = false;
 // only checked when she presses "Open"
 function checkLock() {
   const [a, b, c, e] = dials.map(dialValue), day = a * 10 + b, month = c * 10 + e;
-  if (day === CONFIG.birthday.day && month === CONFIG.birthday.month) {
+  const today = new Date();   // the demo's lock opens to today's date (the visitor's own day and month)
+  const want = DEMO ? { day: today.getDate(), month: today.getMonth() + 1 } : CONFIG.birthday;
+  if (day === want.day && month === want.month) {
     unlocking = true;
     setTimeout(() => {
       $('lock').classList.add('open');
@@ -1282,7 +1305,7 @@ $('gate').onsubmit = e => {
   e.preventDefault();
   if (unlocking) return;
   if (checkLock()) return;
-  $('gateMsg').textContent = 'Hmm… the planet doesn\'t recognise that date.';
+  $('gateMsg').textContent = DEMO ? 'Hmm… that doesn\'t seem to be today.' : 'Hmm… the planet doesn\'t recognise that date.';
   $('gate').classList.remove('shake'); void $('gate').offsetWidth; $('gate').classList.add('shake');
 };
 addEventListener('keydown', e => {   // Enter also moves the story along
@@ -1314,13 +1337,21 @@ if (now() < openMs) {
   const tz = CONFIG.timeZone, opts = { day: 'numeric', month: 'long', timeZone: tz };
   const when = new Date(openMs).toLocaleDateString('en-GB', opts);
   const time = new Date(openMs).toLocaleTimeString('en-GB', { hour: 'numeric', minute: '2-digit', hour12: true, timeZone: tz }).replace(':00', '').replace(' ', '');
-  $('wakeNote').textContent = `It wakes on ${when} at ${time === '12am' ? 'midnight' : time}${CONFIG.timeZoneName ? ` (${CONFIG.timeZoneName})` : ''}. Come back then — it will be waiting for you.`;
+  if (DEMO) $('wakeNote').textContent = 'This is a condensed, ten-minute version of a birthday gift that unfolds over twenty-four hours: three little surprises, three letters, a whole day in ten minutes. The planet wakes in a few seconds…';
+  else $('wakeNote').textContent = `It wakes on ${when} at ${time === '12am' ? 'midnight' : time}${CONFIG.timeZoneName ? ` (${CONFIG.timeZoneName})` : ''}. Come back then — it will be waiting for you.`;
   $('waiting').classList.remove('hidden'); $('storyBox').classList.add('hidden');
   $('intro').classList.add('sleeping');
   updateWaiting();
   setInterval(updateWaiting, 1000);
 } else beginIntro();
-$('endTitle').textContent = `Happy Birthday, ${CONFIG.herName}`;
+$('endTitle').textContent = DEMO ? 'Thank you for visiting ♥' : `Happy Birthday, ${CONFIG.herName}`;
+if (DEMO) {
+  $('endText').textContent = 'A ten-minute taste of a birthday gift that unfolds over twenty-four hours. Thank you for playing.';
+  $('gate').querySelector('h1').textContent = 'Whisper today\'s date';
+  $('gate').querySelector('p').textContent = 'Enter today\'s date: the day, then the month.';
+  $('btnBell').classList.add('hidden'); $('btnIntroBell').classList.add('hidden');
+}
+$('giftTitle').textContent = `Give the ${TOTAL} flowers to the giant chouchou?`;
 updateBell();
 
 // debug panel: open the page with ?debug to time-travel while testing
@@ -1333,7 +1364,7 @@ if (DEBUG) {
   add('Jump to first chouchou', () => setOff(startMs - Date.now() + 1000));
   add('+1 hour', () => setOff(timeOffset + HOUR));
   add('Unlock all', () => setOff(startMs + TOTAL * HOUR - Date.now()));
-  add('Collect all 24', () => { for (let i = 0; i < TOTAL; i++) if (!collected.has(i)) freeChicken(i, true); for (const r of roamers) if (r.mode === 'present') receiveFrom(r, true); updateTimeUI(); });
+  add(`Collect all ${TOTAL}`, () => { for (let i = 0; i < TOTAL; i++) if (!collected.has(i)) freeChicken(i, true); for (const r of roamers) if (r.mode === 'present') receiveFrom(r, true); updateTimeUI(); });
   add('Teleport to the statue', () => { pq.setFromUnitVectors(AY, world.stage.dir).multiply(tq.setFromAxisAngle(AX, 7.5 / R)); girlH = 0; });
   add('Sky: cycle night → dawn → noon → dusk → real', () => {
     const seq = [0, 6.3, 12, 17.9, null], i = seq.indexOf(skyHourOverride);
@@ -2737,7 +2768,9 @@ const startHour = (() => {   // hour-of-day of startTime in her timezone (fixed 
   } catch { return 0; }
 })();
 let skyHourOverride = null;
-const hourOfDay = () => skyHourOverride ?? ((((now() - startMs) / HOUR + startHour) % 24) + 24) % 24;
+const hourOfDay = () => skyHourOverride ?? (DEMO
+  ? ((((now() - openMs) / SKY_HOUR) % 24) + 24) % 24   // demo: midnight when the planet opens, a whole day in ten minutes
+  : ((((now() - startMs) / HOUR + startHour) % 24) + 24) % 24);
 const look = { top: new THREE.Color(), bottom: new THREE.Color(), hemi: new THREE.Color(), ground: new THREE.Color(), sun: new THREE.Color() };
 function lookAt(h) {
   let i = 0; while (KEYS[i + 1][0] < h) i++;
@@ -2804,7 +2837,7 @@ function updateShootingStar(dt) {
     shooting.position.addScaledVector(shoot.vel, dt);
     m.opacity = Math.sin(Math.min(1, k) * Math.PI) * starsMat.opacity;
     shooting.scale.set(lerp(8, 34, Math.min(1, k * 2.5)), 0.9, 1);
-    if (k >= 1) { shooting.visible = false; shoot.wait = waitingMode ? 2 + Math.random() * 5 : state === 'play' ? 18 + Math.random() * 25 : 5 + Math.random() * 12; }   // lots while she waits; rarer (wish-worthy) in play
+    if (k >= 1) { shooting.visible = false; shoot.wait = waitingMode ? 2 + Math.random() * 5 : state === 'play' ? (DEMO ? 6 + Math.random() * 8 : 18 + Math.random() * 25) : 5 + Math.random() * 12; }   // lots while she waits; rarer (wish-worthy) in play
     return;
   }
   if (starsMat.opacity < 0.5 || (shoot.wait -= dt) > 0) return;

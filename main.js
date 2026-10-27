@@ -1088,8 +1088,8 @@ function updatePlayer(dt, t) {
     const axis = V(mz, 0, -mx).normalize();
     const nq = pq.clone().multiply(tq.setFromAxisAngle(axis, (len * (gear.floating ? 3.4 : wet ? 4 : 7) * dt) / R));
     const od = AY.clone().applyQuaternion(pq), nd = AY.clone().applyQuaternion(nq);
-    if (gear.floating) { if (onLagoon(nd)) pq.copy(nq); }   // on the float: anywhere on the lagoon, but not up onto land
-    else if (!blocked(od, nd, 0.35, girlH) && !world.isDeep(nd)) pq.copy(nq);   // the lagoon's middle is too deep
+    if (gear.floating) { if (onLagoon(nd) && !bumpsChouchou(od, nd)) pq.copy(nq); }   // on the float: anywhere on the lagoon, but not up onto land
+    else if (!blocked(od, nd, 0.35, girlH) && !world.isDeep(nd) && !bumpsChouchou(od, nd)) pq.copy(nq);   // the lagoon's middle is too deep
     faceTarget = Math.atan2(mx, mz);
   }
   pq.normalize();
@@ -1481,6 +1481,17 @@ function updateChickens(dt, t) {
 // chouchous never squash into each other: overlapping pairs get nudged apart along the ground.
 // Ones that are settled (at the waterhole, handing over a letter, eating) hold their spot and the other steps aside.
 const ROAMER_GAP = 1.3;
+// she can't walk through a chouchou either (only checked for ones near the ground, and not when she's jumping over)
+const girlGap = r => (r.mode === 'float' ? 0.95 : 0.6) + (gear.floating ? 1.2 : 0.6);
+function bumpsChouchou(od, nd) {
+  if (girlH > world.standHeight(nd).h + 1.1) return false;   // sailing over them mid-jump
+  for (const r of roamers) {
+    if (r.mode === 'flung' || r.mode === 'pop') continue;
+    const c = AY.clone().applyQuaternion(r.q), dn = c.angleTo(nd) * R;
+    if (dn < girlGap(r) && dn < c.angleTo(od) * R) return true;   // blocked only when moving closer, so she can always step away
+  }
+  return false;
+}
 const _sa = V(), _sb = V(), _sd = V(), _sq = new THREE.Quaternion();
 function separateRoamers() {
   const live = roamers.filter(r => r.mode !== 'flung' && r.mode !== 'pop');
@@ -1508,14 +1519,14 @@ function separateRoamers() {
     if (!fa) nudge(a, _sb.clone(), _sa.clone(), push);
     if (!fb) nudge(b, _sa.clone(), _sb.clone(), push);
   }
-  // and the floaters drift out of the way of her pool float
-  if (gear.floating) {
+  // and nobody walks (or floats) into her: they're nudged out of her way
+  if (state === 'play' && girlH < world.standHeight(AY.clone().applyQuaternion(pq)).h + 1.1) {
     const me = AY.clone().applyQuaternion(pq);
     for (const r of live) {
-      if (r.mode !== 'float') continue;
+      if (fixed(r) && r.mode !== 'present') continue;
       _sa.copy(AY).applyQuaternion(r.q);
-      const dist = _sa.angleTo(me) * R;
-      if (dist < 2.3) nudge(r, me, _sa.clone(), 2.3 - dist);
+      const dist = _sa.angleTo(me) * R, gap = girlGap(r);
+      if (dist < gap) nudge(r, me, _sa.clone(), gap - dist);
     }
   }
 }

@@ -2054,6 +2054,7 @@ if (DEBUG) { window.__hour = h => { skyHourOverride = h; }; window.__shoot = () 
 const clock = new THREE.Clock();
 let simT = 0;
 function frame() {
+  fitView();
   const rawDt = clock.getDelta();
   watchQuality(rawDt);
   step(Math.min(rawDt, 0.05), clock.elapsedTime + simT);
@@ -2081,10 +2082,17 @@ function step(dt, t) {
   composer.render();
 }
 
-addEventListener('resize', () => {
-  camera.aspect = innerWidth / innerHeight; camera.updateProjectionMatrix();
-  renderer.setSize(innerWidth, innerHeight); composer.setSize(innerWidth, innerHeight);
-});
+// keep the game exactly the size of the window. Checked every frame as well as on 'resize',
+// because some window changes (zoom, fullscreen, docked panels) don't always send a resize event.
+let viewW = 0, viewH = 0;
+function fitView() {
+  const w = innerWidth, h = innerHeight;
+  if (w === viewW && h === viewH) return;
+  viewW = w; viewH = h;
+  camera.aspect = w / h; camera.updateProjectionMatrix();
+  renderer.setSize(w, h, false); composer.setSize(w, h);
+}
+addEventListener('resize', fitView);
 
 // chickens pulled out on earlier visits: roaming, or still waiting to hand over their letter
 for (const i of pulled) addRoamer(i, new THREE.Quaternion().setFromUnitVectors(AY, flowerDirs[i]), makeCabbageChicken(new THREE.Color(PALETTE[i % PALETTE.length])), false);

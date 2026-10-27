@@ -13,8 +13,8 @@
     --shadow: 0 4px 18px rgba(70, 50, 90, 0.12); --blur: blur(14px) saturate(1.2);
   }
   * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
-  html, body { margin: 0; height: 100%; overflow: hidden; background: #9fd2fb; font-family: 'Quicksand', system-ui, sans-serif; color: var(--ink); user-select: none; -webkit-user-select: none; }
-  #app canvas { display: block; touch-action: none; }
+  html, body { margin: 0; height: 100%; overflow: hidden; background: #1b1d4a; font-family: 'Quicksand', system-ui, sans-serif; color: var(--ink); user-select: none; -webkit-user-select: none; }
+  #app canvas { display: block; touch-action: none; position: fixed; inset: 0; width: 100% !important; height: 100% !important; }   /* always fills the window */
   button { font-family: inherit; cursor: pointer; border: 0; color: inherit; background: none; }
   .hidden { display: none !important; }
   .glass { background: var(--glass); backdrop-filter: var(--blur); -webkit-backdrop-filter: var(--blur); border: 1px solid var(--line); box-shadow: var(--shadow); }

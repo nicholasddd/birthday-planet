@@ -36,11 +36,11 @@ export const CONFIG = {
   // To show a scan of a handwritten letter instead, set `image`, e.g. image: 'assets/letters/letter-01.jpg'
   letters: [
     { time: '01:00', n: 'I', title: 'On Your Existence', sub: 'The beginning of everything.', greet: 'My love,', text: `There is something extraordinary about the simple fact that you exist. That among all the possible lives, all the countless people who have passed through this world, there should be one particular person whose existence has come to mean so much to me.
-Today, the world quietly marks another year of having you in it.
+Tomorrow, the world will quietly mark another year of having you in it.
 I hope you know that you need not accomplish anything remarkable today, nor become anything more than you already are.
 For somewhere in this enormous universe, there is a person who finds the mere fact of your existence worth celebrating.
 That person is me.
-Happy birthday, Cream.` },
+Happy almost-birthday, Cream.` },
     { time: '02:00', n: 'II', title: 'On Finding You', sub: 'Of all the possible encounters.', greet: 'Cream,', text: `I sometimes wonder how many small and seemingly insignificant things had to happen for our lives to meet.
 A different decision, a delayed morning, a road taken instead of another, and perhaps we might have remained strangers, living our separate lives without ever knowing what we had missed.
 It is a strange and beautiful thought.
@@ -107,7 +107,7 @@ I wish to know you, as you are, and to love you there.` },
 We count the years as though time were something we could hold in our hands, something we could gather and measure.
 Yet the most important parts of a life cannot be counted so easily.
 How does one measure a moment of happiness? Or the distance between two people who have gradually grown closer?
-You are another year older today.
+By midnight, you will be another year older.
 But you are also the sum of countless mornings, conversations, discoveries, and quiet victories that no calendar could ever contain.
 I hope you look upon all those years with tenderness.
 They have brought you here.
@@ -120,12 +120,12 @@ There will be unfamiliar roads, unexpected detours, and places we never imagined
 Some journeys will take us across oceans. Others will take place quietly, within ourselves.
 And I look forward to discovering where they lead.
 Especially the ones we get to walk together.` },
-    { time: '13:00', n: 'XIII', title: 'On the Middle of the Day', sub: 'Halfway through your birthday.', greet: 'Baobao,', text: `Half the day has passed, my love.
+    { time: '13:00', n: 'XIII', title: 'On the Middle of the Day', sub: 'Halfway to your birthday.', greet: 'Baobao,', text: `Half the day has passed, my love.
 Twelve little letters have found their way to you, and twelve more are waiting to be read.
 There is something beautiful about dividing a day in this manner.
 To take twenty-four ordinary hours and fill each one with a small declaration of love.
 Perhaps it is my way of resisting how quickly time seems to pass.
-For I cannot make this birthday last longer, nor ask the hours to move more slowly.
+For I cannot make this day last longer, nor ask the hours to move more slowly.
 But I can try to leave something within them.
 A little tenderness.
 A thought.
@@ -200,7 +200,7 @@ I cannot know everything the years will bring.
 But I hope that as we continue to change, we will keep finding reasons to choose one another.
 And perhaps one day, we will discover that the greatest part of our love was not simply that we found each other.
 But that we continued to stay.` },
-    { time: '23:00', n: 'XXIII', title: 'On All That Remains', sub: 'An unwritten lifetime.', greet: 'My love,', text: `As your birthday approaches its final hours, I find myself thinking about everything that remains.
+    { time: '23:00', n: 'XXIII', title: 'On All That Remains', sub: 'An unwritten lifetime.', greet: 'My love,', text: `As the last hour before your birthday begins, I find myself thinking about everything that remains.
 The places we have yet to see. The mountains we have yet to climb. The unfamiliar streets we will wander, and the beautiful moments waiting somewhere for us to arrive.
 I know how much you wish for us to experience life together.
 And I want you to know that I wish for this too.
@@ -208,8 +208,8 @@ To see something beautiful and instinctively turn toward you, hoping that you ha
 To return from a journey carrying not only photographs, but a little more of the world within ourselves.
 And perhaps, when we are much older, we will find that the most extraordinary thing about all those places was never simply where we had gone.
 But that we had gone there together.` },
-    { time: '00:00', n: 'XXIV', title: 'On Loving You, Still', sub: 'The last letter, but not the last word.', greet: 'My love,', text: `And so, the final hour of your birthday has arrived.
-I have spent this day trying, in twenty-four different ways, to tell you something that might have been said in three simple words.
+    { time: '00:00', n: 'XXIV', title: 'On Loving You, Still', sub: 'The last letter, but not the last word.', greet: 'My love,', text: `And so, the clock has reached midnight, and your birthday has begun.
+I have spent this past day trying, in twenty-four different ways, to tell you something that might have been said in three simple words.
 But perhaps that is the trouble with love.
 The words are always smaller than the thing itself.
 I could write another hundred letters and still find that something remains unsaid.
@@ -220,6 +220,6 @@ And may you always know that somewhere within this world, there is someone profo
 And a little chicken named Chouchou, who would undoubtedly agree.
 Happy birthday, baobao.
 I love you, Cream.
-And tomorrow, when there are no more letters arriving every hour, I will love you still.` },
+And after tonight, when there are no more letters arriving every hour, I will love you still.` },
   ],
 };

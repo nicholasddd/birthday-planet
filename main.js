@@ -689,9 +689,25 @@ function updateButterflies(t) {
 
 // ---------------------------------------------------------------- wishes on shooting stars (E)
 let lastWish = Number(store.get('bday-wish-last') ?? -1), wishWindow = 0, wishTimer = null;
+// while a shooting star is crossing, a little "🌠 E" bubble pops up above her head so she doesn't miss it
+const wishBubble = (() => {
+  const c = document.createElement('canvas'); c.width = 220; c.height = 120;
+  const x = c.getContext('2d');
+  x.fillStyle = 'rgba(255,255,255,0.92)'; x.strokeStyle = 'rgba(140,110,200,0.55)'; x.lineWidth = 4;
+  x.beginPath(); x.roundRect(8, 8, 204, 86, 43); x.fill(); x.stroke();
+  x.beginPath(); x.moveTo(98, 92); x.lineTo(110, 112); x.lineTo(122, 92); x.closePath(); x.fill();   // little speech-bubble tail
+  x.font = '54px serif'; x.textAlign = 'center'; x.textBaseline = 'middle'; x.fillText('🌠', 72, 54);
+  x.fillStyle = '#efe9f7'; x.beginPath(); x.roundRect(118, 26, 62, 56, 12); x.fill();
+  x.fillStyle = '#5b4a7a'; x.font = '700 38px Quicksand, sans-serif'; x.fillText('E', 149, 56);
+  const tex = new THREE.CanvasTexture(c); tex.colorSpace = THREE.SRGBColorSpace;
+  const sp = new THREE.Sprite(new THREE.SpriteMaterial({ map: tex, transparent: true, depthTest: false, depthWrite: false, opacity: 0 }));
+  sp.renderOrder = 16; sp.visible = false; scene.add(sp);
+  return sp;
+})();
+let wishPop = 0;
 function makeWish() {
   if (wishWindow <= 0 || state !== 'play' || modalOpen) return;
-  wishWindow = 0;
+  wishWindow = 0; shoot.wished = true;   // one wish per shooting star
   const W = CONFIG.wishes || []; if (!W.length) return;
   let k = Math.floor(Math.random() * W.length);   // one at random — never the same one twice in a row
   if (W.length > 1 && k === lastWish) k = (k + 1 + Math.floor(Math.random() * (W.length - 1))) % W.length;
@@ -938,8 +954,18 @@ function updateLife(dt, t) {
   updateNameLabel();
   // a wish can be made while a shooting star is crossing (and a moment after)
   wishWindow -= dt;
-  if (state === 'play' && shooting.visible && shooting.material.opacity > 0.15) wishWindow = 2.2;
+  if (state === 'play' && shooting.visible && shooting.material.opacity > 0.15 && !shoot.wished) wishWindow = 2.2;
   updateKeyDock();
+  // the bubble above her head
+  const wantBubble = wishWindow > 0 && state === 'play' && !modalOpen;
+  wishPop = clamp(wishPop + (wantBubble ? dt * 4 : -dt * 3), 0, 1);
+  wishBubble.visible = wishPop > 0.01;
+  if (wishBubble.visible) {
+    const e = easeOutBack(wishPop);
+    wishBubble.position.copy(girl.root.localToWorld(V(0, 4.1 + Math.sin(t * 4) * 0.08, 0)));
+    wishBubble.scale.set(1.75 * e, 0.95 * e, 1);
+    wishBubble.material.opacity = Math.min(1, wishPop * 1.5);
+  }
 }
 
 // ============================================================ berries
@@ -2921,7 +2947,7 @@ function updateShootingStar(dt) {
     .addScaledVector(up, 45 + Math.random() * 45).addScaledVector(right, (-dir) * (40 + Math.random() * 90));
   shoot.vel.copy(right).multiplyScalar(Math.cos(ang) * dir).addScaledVector(up, Math.sin(ang)).multiplyScalar(150 + Math.random() * 60);
   m.rotation = dir > 0 ? ang : Math.PI - ang;
-  shoot.t = 0; shoot.life = 0.9 + Math.random() * 0.5; shooting.visible = true;
+  shoot.t = 0; shoot.life = 0.9 + Math.random() * 0.5; shooting.visible = true; shoot.wished = false;
 }
 if (DEBUG) { window.__hour = h => { skyHourOverride = h; }; window.__shoot = () => { shoot.wait = 0; }; }
 

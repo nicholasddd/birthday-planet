@@ -2578,6 +2578,7 @@ function startFinale() {
   state = 'finale';
   gear.wand = gear.parasol = gear.floating = false; wandHolder.visible = parasolHolder.visible = floatRing.root.visible = sky1.visible = false; wandLight.intensity = 0; starFx.phase = 'off';
   releaseFollowers(); dancing = 0; weather.phase = 'clear';
+  girlHat.visible = false;   // her party hat only goes on once the planet bursts
   $('hud').classList.add('hidden');   // the finale is a cinematic: no HUD
   $('joystick').classList.add('hidden'); $('btnJump').classList.add('hidden');
   arrowPivot.visible = false;

@@ -51,15 +51,22 @@ const DEBUG = params.has('debug') || CINEMA;
 if (CINEMA) {   // every filmed shot starts from a clean, prepared save
   for (const k of Object.keys(sessionStorage)) if (k.startsWith('cine:')) sessionStorage.removeItem(k);
   const all = [...Array(24).keys()];
-  const P = ['glow_find', 'pull'].includes(SHOT) ? { pulled: all.slice(0, 23), collected: all.slice(0, 23) }
-    : SHOT === 'finale_full' ? { pulled: all, collected: all }
+  const P = ['glow_find', 'pull', 'sprout'].includes(SHOT) ? { pulled: all.slice(0, 23), collected: all.slice(0, 23) }
+    : ['finale_full', 'finale_night', 'statue_wake', 'ui_gift'].includes(SHOT) ? { pulled: all, collected: all }
     : SHOT === 'post' ? { pulled: all, collected: all, done: 1 }
     : { pulled: all, collected: all.slice(0, 23) };
   store.set('bday-pulled', JSON.stringify(P.pulled)); store.set('bday-collected', JSON.stringify(P.collected));
   for (const k of ['bday-unlocked', 'bday-hint-ack', 'bday-first-seen', 'bday-name-hint']) store.set(k, '1');
   if (P.done) store.set('bday-done', '1');
   store.set('bday-bottle', JSON.stringify({ spot: 0, at: 9e15 }));   // no bottles in the shots
-  document.documentElement.classList.add('cinema');
+  document.documentElement.classList.add(SHOT.startsWith('ui_') ? 'cinema-ui' : 'cinema');   // ui_ shots keep the cards (screen-recorded from outside)
+  // record the game's sound too: anything played to the speakers is also sent to a stream the recorder can take
+  const connect = AudioNode.prototype.connect;
+  AudioNode.prototype.connect = function (dest, ...rest) {
+    const out = connect.call(this, dest, ...rest);
+    if (dest instanceof AudioDestinationNode) connect.call(this, dest.context.recDest ??= dest.context.createMediaStreamDestination());
+    return out;
+  };
 }
 let timeOffset = DEBUG ? Number(store.get('bday-offset') || 0) : 0;
 let startMs = new Date(CONFIG.startTime).getTime();
@@ -3203,7 +3210,7 @@ async function runCinema() {
     return d.clone().multiplyScalar(Math.cos(a)).addScaledVector(dir, Math.sin(a)).normalize();
   };
   const freeRoamers = n => roamers.filter(r => r.mode === 'roam' || r.mode === 'toNap' || r.mode === 'watch' || r.mode === 'chase').slice(0, n);
-  let camFn = null, t0 = 0, dur = 8, onTick = null;
+  let camFn = null, t0 = 0, dur = 8, onTick = null, rolling = false;   // rolling: the recorder has started (after the settle)
   cineCam = (dt, t) => {
     if (onTick) onTick(dt, (performance.now() - t0) / 1000);
     if (!camFn) return;
@@ -3294,6 +3301,47 @@ async function runCinema() {
       place(meadow[3]); await sleep(300); toggleGear('parasol');
       onTick = (dt, s) => { keys.KeyW = s > 1 && s < dur - 0.5; };
       camFn = u => { const p = her(); return { pos: p.clone().addScaledVector(fwd(), 8.5).addScaledVector(up(), 2.6).addScaledVector(right(), -0.8), look: p.clone().addScaledVector(up(), 1).addScaledVector(fwd(), -1.6).addScaledVector(right(), -0.6) }; }; },
+    sprout: async () => { start(); setHour(18.9); dur = 6;   // a chouchou popping up out of the ground, glow and all
+      const b = buried.values().next().value, bd = b.position.clone().normalize(), i = b.userData.i;
+      place(around(bd, 7, 2.4), bd); roamers.forEach(r => { r.armed = false; });
+      onTick = (dt, s) => { if (rolling && s > 1.0 && !onTick.done) { onTick.done = true; buried.delete(i); planetGroup.remove(b); syncChickens(); } };
+      const side = V().crossVectors(bd, around(bd, 1, 0).sub(bd).normalize()).normalize();
+      camFn = u => ({ pos: bd.clone().multiplyScalar(R + 2.2).addScaledVector(side, 6.5 - u * 1.0).addScaledVector(around(bd, 1, 0).sub(bd).normalize(), 1.5), look: bd.clone().multiplyScalar(R + 0.7) }); },
+    chouchou_close: async () => { start(); setHour(17.2); dur = 7;   // one chouchou up close, the camera drifting round it
+      const r = freeRoamers(1)[0], d = meadow[2]; putRoamer(r, d, 0); r.mode = 'roam'; r.pause = 99; r.armed = false;
+      place(around(d, 14, 3));
+      onTick = () => { r.pause = 99; r.armed = false; };
+      camFn = u => { const p = r.group.position, n = p.clone().normalize(), f = V(0, 0, 1).applyQuaternion(r.q), s = V().crossVectors(n, f).normalize(), a = -0.5 + u * 0.8;
+        return { pos: p.clone().addScaledVector(f, Math.cos(a) * (3.2 - u * 0.5)).addScaledVector(s, Math.sin(a) * (3.2 - u * 0.5)).addScaledVector(n, 1.1), look: p.clone().addScaledVector(n, 0.55), up: n }; }; },
+    day_cycle: async () => { start(); setHour(6); dur = 9;   // a whole day going round in nine seconds
+      onTick = (dt, s) => setHour(6 + (s / dur) * 24);
+      camFn = u => { const a = 1.0 + u * 1.4; return { pos: V(Math.sin(a) * 76, 18, Math.cos(a) * 76), look: V(0, 1, 0), up: AY }; }; },
+    statue_wake: async () => { start(); setHour(0.2); dur = 8;   // midnight: the glowing stone statue wakes up into a giant chouchou
+      const sd = world.stage.dir, sp = statue.group.getWorldPosition(V());
+      const out = V(0, 0, 1).transformDirection(statue.group.matrixWorld); out.addScaledVector(sd, -out.dot(sd)).normalize();   // the way its face looks
+      const side = V().crossVectors(sd, out).normalize();
+      place(sp.clone().addScaledVector(out, 26).addScaledVector(side, 2).normalize(), sd);
+      roamers.forEach(r => { r.armed = false; });
+      onTick = (dt, s) => { if (rolling && s > 2.2) wakeStatue(); };   // two seconds of glowing stone, then it wakes
+      camFn = u => ({ pos: sp.clone().addScaledVector(out, 14 - u * 2).addScaledVector(side, -5).addScaledVector(sd, 4), look: sp.clone().addScaledVector(sd, 3).addScaledVector(out, 3) }); },
+    finale_night: async () => { start(); setHour(0.3); dur = 70;   // the ending at midnight, with its music, up to the strawberry rising
+      let wait = 0;
+      onTick = (dt, s) => {
+        if (rolling && s > 0.8 && state === 'play' && !onTick.started) { onTick.started = true; startFinale(); }
+        const f = finale; if (!f) return;
+        if (f.phase === 'candles' && f.t > 8 && (wait += dt) > 0.12) { wait = 0; blowPress(); }   // the candles stay lit a while, for the song
+        if (f.phase === 'awaitCut') { if ((wait += dt) > 1.4) { wait = 0; finaleAction(); } }
+        if (f.phase === 'beanWait' && !onTick.endAt) onTick.endAt = s;
+        if (onTick.endAt && s > onTick.endAt + 2.5) dur = 0;   // stop just after the strawberry rises (the surprise stays a surprise)
+      }; },
+    ui_letter: async () => { start(); setHour(16.5); dur = 9;   // a letter, in English then Thai (the demo's words, not hers)
+      const D = (await import('./demo.js')).DEMO_CONFIG;
+      Object.assign(CONFIG, { letters: D.letters, herName: D.herName, fromName: D.fromName }); THAI[0] = D.lettersTh[0]; SIGN.en = D.signEn; SIGN.th = D.signTh;
+      letterLang = 'en'; place(meadow[0]);
+      onTick = (dt, s) => { if (s > 0.4 && !onTick.a) { onTick.a = true; openLetter(0); } if (s > 4.8 && !onTick.b) { onTick.b = true; $('btnLang').click(); } }; },
+    ui_gift: async () => { start(); setHour(0.2); dur = 10;   // "Give the 24 flowers?" → Yes → she hands them over
+      wakeStatue(true); const sd = world.stage.dir; place(around(sd, 4.2, 0.3), sd); statue.armed = false;
+      onTick = (dt, s) => { if (s > 0.5 && !onTick.a) { onTick.a = true; openOverlay('gift'); } if (s > 3.2 && !onTick.b) { onTick.b = true; $('btnGiftYes').click(); } }; },
     finale_full: async () => { start(); setHour(12); dur = 110;   // the whole ending, auto-played (cut it up in the edit)
       let wait = 0;
       onTick = (dt, s) => {
@@ -3308,12 +3356,22 @@ async function runCinema() {
   };
 
   if (!SHOTS[SHOT]) { document.title = 'NO SHOT ' + SHOT; return; }
+  if (SHOT.startsWith('ui_')) {   // cards are page elements, not the canvas: an outside screen recorder films these
+    await SHOTS[SHOT](); const go = onTick; onTick = null;
+    await sleep(1200); document.title = 'READY';
+    while (!window.cineGo) await sleep(30);
+    t0 = performance.now(); onTick = go; rolling = true;
+    while ((performance.now() - t0) / 1000 < dur) await sleep(100);
+    document.title = 'DONE ' + SHOT; return;
+  }
   t0 = performance.now();
   await SHOTS[SHOT]();
   if (SHOT !== 'dive') { await sleep(1200); t0 = performance.now(); }   // let things settle, then roll
+  rolling = true;
   // record
   const stream = renderer.domElement.captureStream(30);
-  const mime = MediaRecorder.isTypeSupported('video/mp4;codecs=avc1.640028') ? 'video/mp4;codecs=avc1.640028' : 'video/webm;codecs=vp9';
+  actx?.recDest?.stream.getAudioTracks().forEach(tr => stream.addTrack(tr));
+  const mime = ['video/mp4;codecs=avc1.640028,mp4a.40.2', 'video/mp4;codecs=avc1.640028', 'video/webm;codecs=vp9,opus'].find(m => MediaRecorder.isTypeSupported(m));
   const rec = new MediaRecorder(stream, { mimeType: mime, videoBitsPerSecond: 20e6 }), chunks = [];
   rec.ondataavailable = e => { if (e.data.size) chunks.push(e.data); };
   rec.start(500);

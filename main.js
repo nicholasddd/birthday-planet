@@ -221,6 +221,30 @@ const boyGear = (() => {
   const cake = makeCupcake(); cake.root.position.set(0, 0.86, 0.5); cake.root.rotation.x = -0.25; cake.root.visible = false; boyPal.rig.add(cake.root);
   return { holder, ring, cake, floating: false };
 })();
+// baby blue party hats (one vertex-coloured mesh each): hers goes on when the planet bursts, his once they're back exploring together
+const makePartyHat = (() => {
+  const tint = (geo, hex) => {
+    const g = geo.index ? geo.toNonIndexed() : geo, c = new THREE.Color(hex), n = g.attributes.position.count, a = new Float32Array(n * 3);
+    for (let i = 0; i < n; i++) a.set([c.r, c.g, c.b], i * 3);
+    g.deleteAttribute('uv'); g.setAttribute('color', new THREE.BufferAttribute(a, 3)); return g;
+  };
+  const H = 0.62, RB = 0.24, BLUE = 0x7ec4f5, WHITE = 0xffffff;
+  const parts = [
+    tint(new THREE.ConeGeometry(RB, H, 20).translate(0, H / 2, 0), BLUE),
+    tint(new THREE.TorusGeometry(RB, 0.035, 8, 24).rotateX(Math.PI / 2).translate(0, 0.02, 0), WHITE),
+    tint(new THREE.SphereGeometry(0.08, 12, 10).translate(0, H + 0.02, 0), WHITE),
+  ];
+  for (const [h, a] of [[0.14, 0.3], [0.14, 2.4], [0.14, 4.5], [0.3, 1.35], [0.3, 3.45], [0.3, 5.55], [0.45, 0.4], [0.45, 2.5], [0.45, 4.6]]) {
+    const r = RB * (1 - h / H) + 0.004;
+    parts.push(tint(new THREE.SphereGeometry(0.03, 6, 5).translate(Math.sin(a) * r, h, Math.cos(a) * r), WHITE));
+  }
+  const geo = mergeGeometries(parts), mat = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.6, emissive: 0x2a5a80, emissiveIntensity: 0.35 });
+  return (head, x, y, tilt) => {
+    const m = new THREE.Mesh(geo, mat); m.position.set(x, y, 0); m.rotation.z = tilt; m.scale.setScalar(1.2); m.castShadow = true; m.visible = false;
+    head.add(m); return m;
+  };
+})();
+const girlHat = makePartyHat(girl.parts.head, 0.1, 0.64, -0.22), boyHat = makePartyHat(boyPal.parts.head, -0.06, 0.64, 0.18);
 
 // arrow above her head pointing at the nearest stuck chicken
 const arrowPivot = new THREE.Group(); arrowPivot.position.y = 3.1; girl.root.add(arrowPivot);
@@ -989,8 +1013,8 @@ function enterPostGame() {
   cloudPivot.add(bean); bean.visible = true; bean.scale.setScalar(0.42); bean.rotation.set(0.4, 0, 0.3);
   bean.position.set(0.55, 0.7, -0.45).normalize().multiplyScalar(R + 13);
   sb.pop = [0, 0, 0]; sb.bite.scale.setScalar(1); sb.blush.opacity = 0; poseBerryBoy(0, 0);
-  // and he walks with her, just behind
-  boyPal.root.visible = true;
+  // and he walks with her, just behind, both in their party hats
+  boyPal.root.visible = true; girlHat.visible = boyHat.visible = true;
   berryPal.q.copy(pq).multiply(new THREE.Quaternion().setFromAxisAngle(AX, -2.4 / R));
   updateTimeUI();
 }
@@ -2740,7 +2764,7 @@ function updateFinale(dt, t) {
       const d = randDir(Math.random);
       burst(d.multiplyScalar(R + 0.3), 0xb48a64, 4, 3, 0.8, 0.7, glowTex, false);
     }
-    if (p >= 1) { next('smoke'); f.riding = false; burstPlanet(); }
+    if (p >= 1) { next('smoke'); f.riding = false; burstPlanet(); girlHat.visible = true; burst(girl.root.localToWorld(V(0, 2.6, 0)), 0xa7d4f5, 12, 3, 0.5, 0.8); }
   } else if (f.phase === 'smoke') {               // ...and bursts; the cake appears as the smoke clears
     const p = clamp(f.t / 5, 0, 1);
     if (f.t > 0.35) { planetGroup.visible = false; planetGroup.position.set(0, 0, 0); }
